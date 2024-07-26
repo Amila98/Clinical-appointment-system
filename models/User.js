@@ -7,6 +7,7 @@ const UserSchema = new mongoose.Schema({
   isVerified: { type: Boolean, default: false },
   role: { type: String,enum: ['patient', 'doctor', 'admin', 'staff'], default: 'patient' },
   verificationToken: { type: String },
+  mustChangePassword: { type: Boolean,default: false,}
 });
 
 
