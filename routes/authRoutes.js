@@ -1,9 +1,8 @@
 const express = require('express');
 const router = express.Router();
-const { verify, } = require('../controllers/authController');
+const { verify, loginUser } = require('../controllers/authController');
 const { authMiddleware } = require('../middleware/authMiddleware');
 const { registerPatient } = require('../controllers/patientController');
-const { loginUser } = require('../controllers/authController');
 
 
 // Patient registration route

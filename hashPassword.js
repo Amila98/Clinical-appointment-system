@@ -7,4 +7,4 @@ const hashPassword = async (password) => {
 };
 
 // Replace 'your_admin_password' with the actual password you want to hash
-hashPassword('Amila@7589');
+hashPassword('your password');
