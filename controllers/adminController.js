@@ -178,4 +178,45 @@ const createStaffMember = async (req, res) => {
     }
 };
 
-module.exports = { loginAdmin, changeAdminPassword, sendDoctorInvitation, verifyDoctor, createStaffMember };
+// Function to view admin personal information
+const viewAdminDetails = async (req, res) => {
+    const adminId = req.user.userId;
+
+    try {
+        const admin = await Admin.findById(adminId).select('-password');
+        if (!admin) {
+            return res.status(404).json({ msg: 'Admin not found' });
+        }
+
+        res.status(200).json(admin);
+    } catch (err) {
+        res.status(500).json({ msg: 'Server error', error: err.message });
+    }
+};
+
+// Function to update admin personal information
+const updateAdminDetails = async (req, res) => {
+    const adminId = req.user.userId;
+    const { username, password } = req.body;
+
+    try {
+        const updates = {};
+
+        if (username) updates.username = username;
+        if (password) {
+            const salt = await bcrypt.genSalt(10);
+            updates.password = await bcrypt.hash(password, salt);
+        }
+
+        const admin = await Admin.findByIdAndUpdate(adminId, updates, { new: true }).select('-password');
+        if (!admin) {
+            return res.status(404).json({ msg: 'Admin not found' });
+        }
+
+        res.status(200).json({ msg: 'Admin details updated successfully', admin });
+    } catch (err) {
+        res.status(500).json({ msg: 'Server error', error: err.message });
+    }
+};
+
+module.exports = { loginAdmin, changeAdminPassword, sendDoctorInvitation, verifyDoctor, createStaffMember, viewAdminDetails, updateAdminDetails };
