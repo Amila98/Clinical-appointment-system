@@ -11,6 +11,10 @@ const StaffSchema = new Schema({
         required: true,
         unique: true,
     },
+    contact: {
+        type: String,
+        required: false, 
+    },
     password: {
         type: String,
         required: true,
