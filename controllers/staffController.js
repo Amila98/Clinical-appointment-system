@@ -78,4 +78,46 @@ const changePassword = async (req, res) => {
 };
 
 
-module.exports = { verifyStaff, loginStaff, changePassword };
+// Function to view staff personal information
+const viewStaffDetails = async (req, res) => {
+    const token = req.headers.authorization.split(' ')[1];
+
+    try {
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        const staff = await Staff.findById(decoded.id).select('-password');
+        if (!staff) {
+            return res.status(404).json({ msg: 'Staff not found' });
+        }
+
+        res.status(200).json(staff);
+    } catch (err) {
+        res.status(500).json({ msg: 'Server error', error: err.message });
+    }
+};
+
+// Function to update staff personal information
+const updateStaffDetails = async (req, res) => {
+    const token = req.headers.authorization.split(' ')[1];
+    const { name, contact } = req.body;
+
+    try {
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        const staff = await Staff.findById(decoded.id);
+        if (!staff) {
+            return res.status(400).send('Invalid token');
+        }
+
+        // Update staff details, excluding email
+        if (name) staff.name = name;
+        if (contact) staff.contact = contact;
+
+        await staff.save();
+        res.send('Staff details updated successfully');
+    } catch (error) {
+        console.log('Error updating staff details:', error); // Log the error
+        res.status(400).send('Error updating staff details');
+    }
+};
+
+
+module.exports = { verifyStaff, loginStaff, changePassword,viewStaffDetails, updateStaffDetails };
