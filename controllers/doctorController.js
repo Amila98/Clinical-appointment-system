@@ -90,6 +90,57 @@ const changeDoctorPassword = async (req, res) => {
   }
 };
 
+// Function to view doctor personal information
+const viewDoctorDetails = async (req, res) => {
+    const token = req.headers.authorization.split(' ')[1];
 
+    try {
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        const doctor = await Doctor.findById(decoded.userId).select('-password');
+        if (!doctor) {
+            return res.status(404).json({ msg: 'Doctor not found' });
+        }
 
-module.exports = { registerDoctor, loginDoctor, changeDoctorPassword };
+        res.status(200).json(doctor);
+    } catch (err) {
+        res.status(500).json({ msg: 'Server error', error: err.message });
+    }
+};
+
+// Function to update doctor personal information
+const updateDoctorDetails = async (req, res) => {
+    const token = req.headers.authorization.split(' ')[1];
+    const { name, professionalInfo, schedule, currentPassword, newPassword } = req.body;
+
+    try {
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        const doctor = await Doctor.findById(decoded.userId);
+        if (!doctor) {
+            return res.status(400).send('Invalid token');
+        }
+
+        if (currentPassword && newPassword) {
+            const isMatch = await bcrypt.compare(currentPassword, doctor.password);
+            if (!isMatch) {
+                return res.status(400).json({ msg: 'Current password is incorrect' });
+            }
+
+            const salt = await bcrypt.genSalt(10);
+            const hashedPassword = await bcrypt.hash(newPassword, salt);
+            doctor.password = hashedPassword;
+            doctor.mustChangePassword = false;
+        }
+
+        if (name) doctor.name = name;
+        if (professionalInfo) doctor.professionalInfo = professionalInfo;
+        if (schedule) doctor.schedule = schedule;
+
+        await doctor.save();
+        res.send('Doctor details updated successfully');
+    } catch (error) {
+        console.log('Error updating doctor details:', error); // Log the error
+        res.status(400).send('Error updating doctor details');
+    }
+};
+
+module.exports = { registerDoctor, loginDoctor, changeDoctorPassword, viewDoctorDetails, updateDoctorDetails };
