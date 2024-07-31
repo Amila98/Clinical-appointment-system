@@ -1,7 +1,7 @@
 // routes/adminRoutes.js
 const express = require('express');
 const router = express.Router();
-const { loginAdmin, changeAdminPassword, createStaffMember,sendDoctorInvitation, verifyDoctor } = require('../controllers/adminController');
+const { loginAdmin, changeAdminPassword, createStaffMember,sendDoctorInvitation, verifyDoctor, viewAdminDetails, updateAdminDetails } = require('../controllers/adminController');
 const { authMiddleware, roleCheck } = require('../middleware/authMiddleware');
 
 // Admin login route
@@ -16,6 +16,10 @@ router.post('/invite-doctor', authMiddleware, roleCheck('admin'), sendDoctorInvi
 router.post('/verify-doctor', verifyDoctor);
 
 router.post('/create-staff', authMiddleware, createStaffMember);
+
+router.get('/view-admindetails', authMiddleware, viewAdminDetails);
+
+router.put('/update-admindetails', authMiddleware, roleCheck('admin'), updateAdminDetails);
 
 
 
