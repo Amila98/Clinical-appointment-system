@@ -1,44 +1,93 @@
-// controllers/patientController.js
-const User = require('../models/Patient');
+const Patient = require('../models/Patient');
 const sendEmail = require('../utils/sendEmail');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 
-// Patient register function
+// Register function for patients
 const registerPatient = async (req, res) => {
   const { name, email, password } = req.body;
 
   try {
-    let user = await User.findOne({ email });
+    let patient = await Patient.findOne({ email });
 
-    if (user) {
+    if (patient) {
       return res.status(400).json({ msg: 'User already exists' });
     }
 
-    user = new User({
+    patient = new Patient({
       name,
       email,
       password,
       role: 'patient',
-      verified: false,
+      isVerified: false,
     });
 
     const salt = await bcrypt.genSalt(10);
-    user.password = await bcrypt.hash(password, salt);
+    patient.password = await bcrypt.hash(password, salt);
 
-    await user.save();
+    await patient.save();
 
     // Generate JWT token for verification
-    const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET, { expiresIn: '1h' });
+    const token = jwt.sign({ userId: patient._id }, process.env.JWT_SECRET, { expiresIn: '1h' });
 
     const verificationLink = `http://localhost:3000/api/auth/verify/${token}`;
     const message = `<h1>Email Verification</h1>
                      <p>Please click the following link to verify your email:</p>
                      <a href="${verificationLink}">${verificationLink}</a>`;
 
-    await sendEmail(user.email, 'Verify your email', message);
+    await sendEmail(patient.email, 'Verify your email', message);
 
     res.status(200).json({ msg: 'Registration successful, please verify your email' });
+  } catch (err) {
+    console.error(err.message);
+    res.status(500).json({ msg: 'Server error', error: err.message });
+  }
+};
+
+// Route to handle email verification
+const verify = async (req, res) => {
+  const { token } = req.params;
+
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const userId = decoded.userId;
+
+    const patient = await Patient.findById(userId);
+
+    if (!patient) {
+      return res.status(400).json({ msg: 'Invalid token' });
+    }
+
+    patient.isVerified = true;
+    await patient.save();
+
+    res.status(200).json({ msg: 'Email successfully verified' });
+  } catch (err) {
+    console.error(err.message);
+    res.status(500).json({ msg: 'Server error', error: err.message });
+  }
+};
+
+// Generic login function for all roles
+const loginUser = async (req, res) => {
+  const { email, password } = req.body;
+
+  try {
+    // Check if user exists
+    const patient = await Patient.findOne({ email });
+    if (!patient) {
+      return res.status(400).json({ msg: 'Invalid credentials' });
+    }
+
+    // Check if password matches
+    const isMatch = await bcrypt.compare(password, patient.password);
+    if (!isMatch) {
+      return res.status(400).json({ msg: 'Invalid credentials' });
+    }
+
+    const token = jwt.sign({ userId: patient._id, role: patient.role }, process.env.JWT_SECRET, { expiresIn: '1h' });
+
+    res.status(200).json({ token });
   } catch (err) {
     console.error(err.message);
     res.status(500).json({ msg: 'Server error', error: err.message });
@@ -50,25 +99,25 @@ const requestPasswordReset = async (req, res) => {
   const { email } = req.body;
 
   try {
-      const user = await User.findOne({ email, role: 'patient' });
-      if (!user) {
-          return res.status(400).json({ msg: 'User with this email does not exist' });
-      }
+    const patient = await Patient.findOne({ email, role: 'patient' });
+    if (!patient) {
+      return res.status(400).json({ msg: 'User with this email does not exist' });
+    }
 
-      // Generate reset token
-      const resetToken = jwt.sign({ userId: user._id }, process.env.JWT_SECRET, { expiresIn: '1h' });
+    // Generate reset token
+    const resetToken = jwt.sign({ userId: patient._id }, process.env.JWT_SECRET, { expiresIn: '1h' });
 
-      const resetLink = `http://localhost:3000/api/patient/reset-password/${resetToken}`;
-      const message = `<h1>Password Reset</h1>
-                       <p>Please click the following link to reset your password:</p>
-                       <a href="${resetLink}">${resetLink}</a>`;
+    const resetLink = `http://localhost:3000/api/patient/reset-password/${resetToken}`;
+    const message = `<h1>Password Reset</h1>
+                     <p>Please click the following link to reset your password:</p>
+                     <a href="${resetLink}">${resetLink}</a>`;
 
-      await sendEmail(user.email, 'Reset your password', message);
+    await sendEmail(patient.email, 'Reset your password', message);
 
-      res.status(200).json({ msg: 'Password reset email sent' });
+    res.status(200).json({ msg: 'Password reset email sent' });
   } catch (err) {
-      console.error(err.message);
-      res.status(500).json({ msg: 'Server error', error: err.message });
+    console.error(err.message);
+    res.status(500).json({ msg: 'Server error', error: err.message });
   }
 };
 
@@ -76,9 +125,6 @@ const requestPasswordReset = async (req, res) => {
 const resetPassword = async (req, res) => {
   const { token } = req.params;
   const { newPassword } = req.body;
-
-  console.log('Received token:', token); // Debugging
-  console.log('Received newPassword:', newPassword); // Debugging
 
   if (!token || !newPassword) {
     return res.status(400).json({ msg: 'Token and new password are required' });
@@ -92,14 +138,14 @@ const resetPassword = async (req, res) => {
       return res.status(400).json({ msg: 'Invalid token' });
     }
 
-    const user = await User.findById(userId);
-    if (!user) {
+    const patient = await Patient.findById(userId);
+    if (!patient) {
       return res.status(400).json({ msg: 'User not found' });
     }
 
     const salt = await bcrypt.genSalt(10);
-    user.password = await bcrypt.hash(newPassword, salt);
-    await user.save();
+    patient.password = await bcrypt.hash(newPassword, salt);
+    await patient.save();
 
     res.status(200).json({ msg: 'Password reset successfully' });
   } catch (err) {
@@ -108,5 +154,63 @@ const resetPassword = async (req, res) => {
   }
 };
 
+// Function to view patient personal information
+const viewPatientDetails = async (req, res) => {
+  const token = req.headers.authorization.split(' ')[1];
 
-module.exports = { registerPatient ,requestPasswordReset, resetPassword };
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const patient = await Patient.findById(decoded.userId).select('-password');
+    if (!patient) {
+      return res.status(404).json({ msg: 'Patient not found' });
+    }
+
+    res.status(200).json(patient);
+  } catch (err) {
+    res.status(500).json({ msg: 'Server error', error: err.message });
+  }
+};
+
+// Function to update patient personal information
+const updatePatientDetails = async (req, res) => {
+  const token = req.headers.authorization.split(' ')[1];
+  const { name, currentPassword, newPassword } = req.body;
+
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const patient = await Patient.findById(decoded.userId);
+    if (!patient) {
+      return res.status(400).send('Invalid token');
+    }
+
+    if (currentPassword && newPassword) {
+      const isMatch = await bcrypt.compare(currentPassword, patient.password);
+      if (!isMatch) {
+        return res.status(400).json({ msg: 'Current password is incorrect' });
+      }
+
+      const salt = await bcrypt.genSalt(10);
+      const hashedPassword = await bcrypt.hash(newPassword, salt);
+      patient.password = hashedPassword;
+      patient.mustChangePassword = false;
+    }
+
+    if (name) patient.name = name;
+
+    await patient.save();
+    res.send('Patient details updated successfully');
+  } catch (error) {
+    console.log('Error updating patient details:', error); // Log the error
+    res.status(400).send('Error updating patient details');
+  }
+};
+
+module.exports = {
+  registerPatient,
+  verify,
+  loginUser,
+  requestPasswordReset,
+  resetPassword,
+  viewPatientDetails,
+  updatePatientDetails
+};
