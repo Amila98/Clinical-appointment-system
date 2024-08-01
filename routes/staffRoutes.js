@@ -7,7 +7,8 @@ const auth = require('../middleware/authMiddleware');
 router.get('/verify/:token', verifyStaff);
 router.post('/login', loginStaff);
 router.post('/change-password', changePassword);
-router.put('/edit-details', auth.authMiddleware, updateStaffDetails);
 router.get('/details', auth.authMiddleware, viewStaffDetails);
+router.put('/edit-details', auth.authMiddleware, updateStaffDetails);
+
 
 module.exports = router;
