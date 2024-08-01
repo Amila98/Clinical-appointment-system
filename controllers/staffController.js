@@ -98,7 +98,7 @@ const viewStaffDetails = async (req, res) => {
 // Function to update staff personal information
 const updateStaffDetails = async (req, res) => {
     const token = req.headers.authorization.split(' ')[1];
-    const { name, contact } = req.body;
+    const { name, contact, newPassword } = req.body;
 
     try {
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
@@ -110,6 +110,12 @@ const updateStaffDetails = async (req, res) => {
         // Update staff details, excluding email
         if (name) staff.name = name;
         if (contact) staff.contact = contact;
+
+        // Update password if provided
+        if (newPassword) {
+            const salt = await bcrypt.genSalt(10);
+            staff.password = await bcrypt.hash(newPassword, salt);
+        }
 
         await staff.save();
         res.send('Staff details updated successfully');
