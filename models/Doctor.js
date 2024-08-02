@@ -24,6 +24,10 @@ const DoctorSchema = new Schema({
         type: String,
         required: true
     },
+    role: {
+        type: String,
+        default: 'Doctor',
+    },
     isVerified: {
         type: Boolean,
         default: false
