@@ -61,7 +61,7 @@ const sendDoctorInvitation = async (req, res) => {
         const token = jwt.sign({ email }, process.env.JWT_SECRET, { expiresIn: '1d' });
 
         // Create a URL with the token
-        const invitationLink = `http://localhost:3000/register/doctor/${token}`;
+        const invitationLink = `http://localhost:3000/api/admin/invite-doctor/${token}`;
 
         // Send the invitation email
         let transporter = nodemailer.createTransport({
