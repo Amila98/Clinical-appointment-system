@@ -6,7 +6,7 @@ const Doctor = require('../models/Doctor');
 // Doctor registration function
 // controllers/doctorController.js
 const registerDoctor = async (req, res) => {
-  const { token } = req.query;
+  const { token } = req.params;
   const { name, email, password, professionalInfo, schedule } = req.body;
 
   try {
@@ -33,7 +33,7 @@ const registerDoctor = async (req, res) => {
           password: hashedPassword,
           professionalInfo,
           schedule,
-          isVerified: true,
+          isVerified: false,
           mustChangePassword: true,
       });
 
@@ -54,6 +54,9 @@ const loginDoctor = async (req, res) => {
 
       if (!doctor) {
           return res.status(400).json({ msg: 'Invalid credentials' });
+      }
+      if (!doctor.isVerified) {
+        return res.status(403).json({ msg: 'Account not verified. Please contact the admin for verification.' });
       }
 
       const isMatch = await bcrypt.compare(password, doctor.password);
