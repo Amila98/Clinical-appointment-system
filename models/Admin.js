@@ -14,6 +14,10 @@ const adminSchema = new mongoose.Schema({
     mustChangePassword: {
         type: Boolean,
         default: true
+    },
+    role: {
+        type: String,
+        default: 'Admin',
     }
 });
 
