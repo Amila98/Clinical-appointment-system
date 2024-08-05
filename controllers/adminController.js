@@ -76,6 +76,17 @@ const sendDoctorInvitation = async (req, res) => {
     // Destructure the email from the request body
     const { email } = req.body;
 
+     // Function to validate email format
+     const isValidEmail = (email) => {
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        return emailRegex.test(email);
+    };
+
+    // Check if the email is valid
+    if (!isValidEmail(email)) {
+        return res.status(400).json({ msg: 'Invalid email format' });
+    }
+
     try {
         // Generate a token with the doctor's email
         const token = jwt.sign({ email }, process.env.JWT_SECRET, { expiresIn: '1d' });
