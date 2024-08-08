@@ -5,6 +5,7 @@ const patientRoutes = require('./routes/patientRoutes');
 const adminRoutes = require('./routes/adminRoutes');
 const doctorRoutes = require('./routes/doctorRoutes');
 const staffRoutes = require('./routes/staffRoutes');
+const authRoutes = require('./routes/authRoutes');
 
 require('dotenv').config();
 
@@ -19,6 +20,8 @@ app.use('/api/patient', patientRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/doctor', doctorRoutes);
 app.use('/api/staff', staffRoutes);
+app.use('/api/auth', authRoutes);
+
 
 
 
