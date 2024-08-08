@@ -4,7 +4,7 @@ const { verifyStaff, loginStaff, changePassword, viewStaffDetails, updateStaffDe
 const auth = require('../middleware/authMiddleware');
 
 // Route to verify staff
-router.get('/verify/:token', verifyStaff);
+router.post('/verify/:token', verifyStaff);
 router.post('/login', loginStaff);
 router.post('/change-password', changePassword);
 router.get('/details', auth.authMiddleware, viewStaffDetails);
