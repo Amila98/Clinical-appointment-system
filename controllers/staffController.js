@@ -7,21 +7,33 @@ const Staff = require('../models/Staff');
 
 const verifyStaff = async (req, res) => {
     const { token } = req.params;
-    console.log('Token:', token); // Log the token to see if it is being extracted correctly
+    const { password } = req.body;
+
     try {
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
-        console.log('Decoded:', decoded); // Log the decoded token
+
         const staff = await Staff.findById(decoded.userId);
+
         if (!staff) {
-            console.log('Invalid token: No staff found');
-            return res.status(400).send('Invalid token');
+            return res.status(400).json({ msg: 'Invalid token' });
         }
+
+        if (staff.isVerified) {
+            return res.status(400).json({ msg: 'Staff member already verified' });
+        }
+
+        const salt = await bcrypt.genSalt(10);
+        const hashedPassword = await bcrypt.hash(password, salt);
+
+        staff.password = hashedPassword;
         staff.isVerified = true;
+        staff.mustChangePassword =true;
+
         await staff.save();
-        res.send('Email verified. You can now login and change your password.');
-    } catch (error) {
-        console.log('Error:', error); // Log the error
-        res.status(400).send('Invalid token');
+
+        res.status(200).json({ msg: 'Staff member verified and password set successfully' });
+    } catch (err) {
+        res.status(500).json({ msg: 'Server error', error: err.message });
     }
 };
 
@@ -54,7 +66,8 @@ const loginStaff = async (req, res) => {
 
 
 const changePassword = async (req, res) => {
-    const { token, newPassword } = req.body;
+    const token = req.headers.authorization.split(' ')[1];
+    const { newPassword } = req.body;
     try {
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
         const staff = await Staff.findById(decoded.id);
@@ -76,6 +89,7 @@ const changePassword = async (req, res) => {
         res.status(400).send('Error changing password');
     }
 };
+
 
 
 // Function to view staff personal information
