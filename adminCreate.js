@@ -33,7 +33,9 @@ const createAdmin = async () => {
         const admin = new Admin({
             username: process.env.ADMIN_USERNAME,
             password: hashedPassword,
-            mustChangePassword: true
+            email: process.env.ADMIN_EMAIL,
+            mustChangePassword: true,
+            isVerified: true
         });
 
         // Save the admin user to the database
