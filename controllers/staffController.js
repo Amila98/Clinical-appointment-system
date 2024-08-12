@@ -6,70 +6,96 @@ const Staff = require('../models/Staff');
 // Function for staff login
 
 const verifyStaff = async (req, res) => {
+    // Destructure the token and password from the request body
     const { token } = req.params;
     const { password } = req.body;
 
     try {
+        // Decode the token using the JWT secret
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
+        // Find the staff member by their ID
         const staff = await Staff.findById(decoded.userId);
 
-        if (!staff) {
+        // If the staff member does not exist or is already verified, return an error
+        if (!staff || staff.isVerified) {
             return res.status(400).json({ msg: 'Invalid token' });
         }
 
-        if (staff.isVerified) {
-            return res.status(400).json({ msg: 'Staff member already verified' });
-        }
-
+        // Generate a salt and hash the password
         const salt = await bcrypt.genSalt(10);
         const hashedPassword = await bcrypt.hash(password, salt);
 
+        // Update the staff member's password and verification status
         staff.password = hashedPassword;
         staff.isVerified = true;
-        staff.mustChangePassword =true;
+        staff.mustChangePassword = true;
 
+        // Save the changes to the staff member
         await staff.save();
 
+        // Return a success message
         res.status(200).json({ msg: 'Staff member verified and password set successfully' });
     } catch (err) {
+        // Return an error message if there was a server error
         res.status(500).json({ msg: 'Server error', error: err.message });
     }
 };
 
 const loginStaff = async (req, res) => {
+    // Destructure email and password from request body
     const { email, password } = req.body;
+
     try {
+        // Find the staff member with the provided email
         const staff = await Staff.findOne({ email });
+
+        // If staff member does not exist or is not verified, return error
         if (!staff || !staff.isVerified) {
             return res.status(400).send('Invalid email or email not verified');
         }
 
+        // Compare provided password with hashed password in database
         const isMatch = await bcrypt.compare(password, staff.password);
+
+        // If passwords do not match, return error
         if (!isMatch) {
             return res.status(400).send('Invalid password');
         }
 
+        // If staff member must change password on first login
         if (staff.mustChangePassword) {
+            // Generate a token with an expiration time of 1 hour
             // User must change password on first login
             const token = jwt.sign({ id: staff._id }, process.env.JWT_SECRET, { expiresIn: '1h' });
+            // Return success message with token
             return res.status(200).json({ msg: 'Password change required', token });
         }
 
         // If no password change is required
+        // Generate a token with an expiration time of 1 day
         const token = jwt.sign({ id: staff._id }, process.env.JWT_SECRET, { expiresIn: '1d' });
+        // Return success message with token
         res.status(200).json({ token });
     } catch (error) {
+        // If an error occurs, return error message
         res.status(400).send('Error logging in');
     }
 };
 
 
+
 const changePassword = async (req, res) => {
+    // Extract the token and new password from the request
     const token = req.headers.authorization.split(' ')[1];
     const { newPassword } = req.body;
+
     try {
+        // Verify the token and extract the staff ID
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        const staffId = decoded.id;
+
+        // If the staff member does not exist, return an error
         const staff = await Staff.findById(decoded.id);
         if (!staff) {
             return res.status(400).send('Invalid token');
@@ -79,45 +105,61 @@ const changePassword = async (req, res) => {
         const salt = await bcrypt.genSalt(10);
         const hashedPassword = await bcrypt.hash(newPassword, salt);
 
+        // Update the staff record
         // Update staff record
         staff.password = hashedPassword;
         staff.mustChangePassword = false; // No longer needs to change password
         await staff.save();
 
+        // Return success message
         res.send('Password changed successfully');
     } catch (error) {
+        // Return error message if there was a problem changing the password
         res.status(400).send('Error changing password');
     }
 };
 
 
 
-// Function to view staff personal information
 const viewStaffDetails = async (req, res) => {
+    // Extract the token from the request headers
     const token = req.headers.authorization.split(' ')[1];
 
     try {
+        // Verify the token and decode the staff ID
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
+        // Find the staff member by ID, excluding the password field
         const staff = await Staff.findById(decoded.id).select('-password');
+
+        // If staff member is not found, return a 404 error response
         if (!staff) {
             return res.status(404).json({ msg: 'Staff not found' });
         }
 
+        // Return the staff object with password excluded
         res.status(200).json(staff);
     } catch (err) {
+        // Log the error and return a server error message
+        console.error(err.message);
         res.status(500).json({ msg: 'Server error', error: err.message });
     }
 };
 
 // Function to update staff personal information
 const updateStaffDetails = async (req, res) => {
+    // Extract the authorization token from the request headers
     const token = req.headers.authorization.split(' ')[1];
+    // Destructure the request body properties
     const { name, contact, newPassword } = req.body;
 
     try {
+        // Verify the token and decode the staff ID
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        // Find the staff member by ID
         const staff = await Staff.findById(decoded.id);
         if (!staff) {
+            // Return an error if the token is invalid
             return res.status(400).send('Invalid token');
         }
 
@@ -127,13 +169,23 @@ const updateStaffDetails = async (req, res) => {
 
         // Update password if provided
         if (newPassword) {
+            // Generate a salt for password hashing
             const salt = await bcrypt.genSalt(10);
+            // Hash the new password with the generated salt
             staff.password = await bcrypt.hash(newPassword, salt);
         }
 
+        if (req.file) {
+            staff.profilePicture = req.file.path;
+        }
+
+        // Save the updated staff details to the database
         await staff.save();
+        // Send success message to the client
         res.send('Staff details updated successfully');
     } catch (error) {
+        // Log the error and send an error response to the client
+        console.log('Error updating staff details:', error);
         console.log('Error updating staff details:', error); // Log the error
         res.status(400).send('Error updating staff details');
     }
