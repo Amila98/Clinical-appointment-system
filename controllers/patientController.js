@@ -265,6 +265,10 @@ const updatePatientDetails = async (req, res) => {
     // Update the patient's personal information if provided
     if (name) patient.name = name;
 
+    if (req.file) {
+      patient.profilePicture = req.file.path;
+  }
+
     // Save the updated patient details to the database
     await patient.save();
 
