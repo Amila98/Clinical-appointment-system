@@ -137,4 +137,49 @@ const resetPassword = async (req, res) => {
 };
 
 
-module.exports = { forgotPassword, resetPassword };
+  // Function to upload profile picture
+// Function to upload profile picture
+const uploadProfilePicture = async (req, res) => {
+    const userId = req.user.userId;
+    const file = req.file;
+  
+    if (!file) {
+        return res.status(400).json({ msg: 'No file uploaded' });
+    }
+  
+    try {
+        // Identify user based on role
+        let user;
+        switch (req.user.role) {
+            case 'admin':
+                user = await Admin.findById(userId);
+                break;
+            case 'doctor':
+                user = await Doctor.findById(userId);
+                break;
+            case 'staff':
+                user = await Staff.findById(userId);
+                break;
+            case 'patient':
+                user = await Patient.findById(userId);
+                break;
+            default:
+                return res.status(400).json({ msg: 'Invalid role' });
+        }
+  
+        if (!user) {
+            return res.status(404).json({ msg: 'User not found' });
+        }
+  
+        // Update user with profile picture path
+        user.profilePicture = file.path;
+        await user.save();
+  
+        res.status(200).json({ msg: 'Profile picture uploaded successfully', filePath: file.path });
+    } catch (err) {
+        res.status(500).json({ msg: 'Server error', error: err.message });
+    }
+};
+
+
+module.exports = { forgotPassword, resetPassword, uploadProfilePicture };
