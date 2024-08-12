@@ -1,5 +1,6 @@
 // middleware/authMiddleware.js
 const jwt = require('jsonwebtoken');
+const PERMISSION_LEVELS = require('../utils/permissionLevels');
 
 // Middleware to authenticate the token
 const authMiddleware = (req, res, next) => {
@@ -18,10 +19,9 @@ const authMiddleware = (req, res, next) => {
     }
 };
 
-const roleCheck = (roles) => {
+const roleCheck = (requiredPermissionLevel) => {
     return (req, res, next) => {
-        console.log("User role:", req.user.role); // Debugging log
-        if (!roles.includes(req.user.role)) {
+        if (req.user.permissionLevel < requiredPermissionLevel) {
             return res.status(403).json({ msg: 'Access denied' });
         }
         next();
@@ -31,12 +31,10 @@ const roleCheck = (roles) => {
 
 const verifyMiddleware = (req, res, next) => {
   // Check if the user's email is verified.
-  if (!req.user.isVerified) {
-    // If the user's email is not verified, return a 403 status code and an error message.
+  if (req.user.role !== 'admin' && !req.user.isVerified) {
     return res.status(403).json({ msg: 'Email not verified' });
   }
-  // If the user's email is verified, proceed to the next middleware function.
-  next();
+  next();;
 };
 
 module.exports = { authMiddleware, roleCheck, verifyMiddleware };
