@@ -1,5 +1,6 @@
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
+const PERMISSION_LEVELS = require('../utils/permissionLevels');
 
 const PatientSchema = new mongoose.Schema({
   name: { type: String, required: true },
@@ -8,7 +9,9 @@ const PatientSchema = new mongoose.Schema({
   isVerified: { type: Boolean, default: false },
   role: { type: String, enum: ['patient', 'doctor', 'admin', 'staff'], default: 'patient' },
   verificationToken: { type: String },
-  mustChangePassword: { type: Boolean, default: false }
+  mustChangePassword: { type: Boolean, default: false },
+  profilePicture: { type: String, default: '' },
+  permissionLevel: { type: Number, default: PERMISSION_LEVELS.PATIENT }
 });
 
 // Method to compare hashed passwords
