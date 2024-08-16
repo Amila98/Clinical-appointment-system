@@ -1,0 +1,41 @@
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
+
+// Multer storage configuration
+const storage = multer.diskStorage({
+    destination: (req, file, cb) => {
+        const uploadPath = path.join(__dirname, '../uploads');
+        if (!fs.existsSync(uploadPath)) {
+            fs.mkdirSync(uploadPath);
+        }
+        cb(null, uploadPath);
+    },
+    filename: (req, file, cb) => {
+        const fileExtension = path.extname(file.originalname);
+        const fileName = `${req.user.userId}-${Date.now()}${fileExtension}`;
+        cb(null, fileName);
+    }
+});
+
+// Initialize Multer with the storage configuration
+const upload = multer({ 
+    storage,
+    limits: { fileSize: 5 * 1024 * 1024 }, // Optional: Set file size limits (5MB)
+    fileFilter: (req, file, cb) => {
+        const allowedFileTypes = /jpeg|jpg|png/;
+        const extname = allowedFileTypes.test(path.extname(file.originalname).toLowerCase());
+        const mimeType = allowedFileTypes.test(file.mimetype);
+
+        if (mimeType && extname) {
+            return cb(null, true);
+        } else {
+            cb(new Error('Only .jpeg, .jpg, and .png files are allowed!'));
+        }
+    }
+});
+
+// Middleware for uploading profile picture
+const uploadMiddleware = upload.single('profilePicture');
+
+module.exports = { uploadMiddleware };
