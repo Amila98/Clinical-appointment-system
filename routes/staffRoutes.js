@@ -1,5 +1,6 @@
 const express = require('express');
 const router = express.Router();
+const { uploadMiddleware } = require('../middleware/uploadMiddleware');
 const { verifyStaff, loginStaff, changePassword, viewStaffDetails, updateStaffDetails } = require('../controllers/staffController');
 const auth = require('../middleware/authMiddleware');
 
@@ -8,7 +9,7 @@ router.post('/verify/:token', verifyStaff);
 router.post('/login', loginStaff);
 router.post('/change-password', changePassword);
 router.get('/details', auth.authMiddleware, viewStaffDetails);
-router.put('/edit-details', auth.authMiddleware, updateStaffDetails);
+router.put('/edit-details', auth.authMiddleware,uploadMiddleware, updateStaffDetails);
 
 
 module.exports = router;
