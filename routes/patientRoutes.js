@@ -1,5 +1,6 @@
 const express = require('express');
 const router = express.Router();
+const { uploadMiddleware } = require('../middleware/uploadMiddleware');
 const  {registerPatient, verify, loginUser, requestPasswordReset, resetPassword, viewPatientDetails, updatePatientDetails }= require('../controllers/patientController');
 const {authMiddleware} = require('../middleware/authMiddleware'); // Middleware to verify JWT token
 
@@ -22,6 +23,6 @@ router.post('/reset-password/:token', resetPassword);
 router.get('/details', authMiddleware, viewPatientDetails);
 
 // Update patient personal information (protected route)
-router.put('/details', authMiddleware, updatePatientDetails);
+router.put('/details', authMiddleware,uploadMiddleware, updatePatientDetails);
 
 module.exports = router;
