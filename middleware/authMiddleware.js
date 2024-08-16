@@ -1,5 +1,6 @@
+// authMiddleware.js
 const jwt = require('jsonwebtoken');
-const PERMISSION_LEVELS = require('../utils/permissionLevels');
+const Permission = require('../models/Permission');
 
 // Middleware to authenticate the token
 const authMiddleware = (req, res, next) => {
@@ -9,49 +10,40 @@ const authMiddleware = (req, res, next) => {
     }
     try {
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
-        console.log("Decoded JWT:", decoded); // Debugging log
         req.user = decoded;
         next();
     } catch (err) {
-        console.error('Token verification failed:', err.message);
         res.status(401).json({ msg: 'Token is not valid', error: err.message });
     }
 };
 
-const roleCheck = (requiredPermissionLevel) => {
-    return (req, res, next) => {
-        // Ensure req.user.role is a string and convert to lower case
-        const userRole = (req.user.role || '').toLowerCase();
+// Middleware to check if the user has the required permission (feature)
+const roleCheck = (requiredPermissions) => {
+    return async (req, res, next) => {
+        try {
+            const userRole = req.user.role;
+            const permission = await Permission.findOne({ role: userRole });
 
-        // Map role strings to permission levels
-        const rolePermissionLevels = {
-            'super admin': PERMISSION_LEVELS.SUPER_ADMIN,
-            'admin': PERMISSION_LEVELS.ADMIN,
-            'doctor': PERMISSION_LEVELS.DOCTOR,
-            'staff': PERMISSION_LEVELS.STAFF,
-            'patient': PERMISSION_LEVELS.PATIENT,
-        };
+            if (!permission) {
+                return res.status(403).json({ msg: 'Access denied: role not found' });
+            }
 
-        // Get the user's permission level based on their role
-        const userPermissionLevel = rolePermissionLevels[userRole];
+            const hasPermission = requiredPermissions.every(permissionName =>
+                permission.permissions.includes(permissionName)
+            );
 
-        // Log details for debugging
-        console.log(`User Role: ${userRole}, User Permission Level: ${userPermissionLevel}, Required Permission Level: ${requiredPermissionLevel}`);
+            if (!hasPermission) {
+                return res.status(403).json({ msg: 'Access denied: insufficient permissions' });
+            }
 
-        // Compare permission levels
-        if (userPermissionLevel === undefined) {
-            return res.status(403).json({ msg: 'Invalid user role' });
+            next();
+        } catch (err) {
+            res.status(500).json({ msg: 'Server error', error: err.message });
         }
-        if (userPermissionLevel < requiredPermissionLevel) {
-            return res.status(403).json({ msg: 'Access denied' });
-        }
-
-        next();
     };
 };
 
 const verifyMiddleware = (req, res, next) => {
-    // Check if the user's email is verified
     if (req.user.role !== 'admin' && !req.user.isVerified) {
         return res.status(403).json({ msg: 'Email not verified' });
     }
