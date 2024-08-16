@@ -1,5 +1,6 @@
 const mongoose = require('mongoose');
 const Schema = mongoose.Schema;
+const PERMISSION_LEVELS = require('../utils/permissionLevels');
 
 const StaffSchema = new Schema({
     name: {
@@ -31,6 +32,8 @@ const StaffSchema = new Schema({
         type: Boolean,
         default: false,
     },
+    profilePicture: { type: String, default: '' },
+    permissionLevel: { type: Number, default: PERMISSION_LEVELS.STAFF }
 });
 
 const Staff = mongoose.model('Staff', StaffSchema);
