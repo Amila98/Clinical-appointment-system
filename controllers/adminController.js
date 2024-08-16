@@ -2,9 +2,12 @@
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const nodemailer = require('nodemailer');
+const sendEmail = require('../utils/sendEmail');
 const Admin = require('../models/Admin');
 const Doctor = require('../models/Doctor');
 const Staff = require('../models/Staff');
+const Patient = require('../models/Patient');
+
 
 
 // Admin login function
@@ -24,6 +27,7 @@ const loginAdmin = async (req, res) => {
         // Compare the provided password with the hashed password in the database
         const isMatch = await bcrypt.compare(password, admin.password);
 
+
         // If passwords do not match, return an error message
         if (!isMatch) {
             return res.status(400).json({ msg: 'Invalid credentials' });
@@ -31,13 +35,13 @@ const loginAdmin = async (req, res) => {
 
         // If admin must change password, generate a token and return it along with a message
         if (admin.mustChangePassword) {
-            const token = jwt.sign({ userId: admin._id, role: 'admin' }, process.env.JWT_SECRET, { expiresIn: '1d' });
+            const token = jwt.sign({ userId: admin._id, role: admin.role }, process.env.JWT_SECRET, { expiresIn: '1d' });
             return res.status(200).json({ msg: 'Password change required', mustChangePassword: true, token });
         }
 
         // Generate a token and return it
-        const token = jwt.sign({ userId: admin._id, role: 'admin' }, process.env.JWT_SECRET, { expiresIn: '1d' });
-        return res.status(200).json({ token });
+        const token = jwt.sign({ userId: admin._id, role: admin.role, isVerified: admin.isVerified }, process.env.JWT_SECRET, { expiresIn: '1d' });
+        return res.status(200).json({ token }); 
     } catch (err) {
         // If an error occurs, return a server error message
         res.status(500).json({ msg: 'Server error', error: err.message });
@@ -123,41 +127,22 @@ const sendDoctorInvitation = async (req, res) => {
     }
 };
 
-// Verify doctor function
+// controllers/adminController.js
+
 const verifyDoctor = async (req, res) => {
-    // Get the doctor ID from the request body
     const { doctorId } = req.body;
 
     try {
-        // Find the doctor by their ID
         const doctor = await Doctor.findById(doctorId);
 
-        // If doctor not found, return error
         if (!doctor) {
             return res.status(404).json({ msg: 'Doctor not found' });
         }
 
-        // Generate a temporary password
-        const tempPassword = Math.random().toString(36).slice(-8);
-
-        // Generate a salt and hash the temporary password
-        const salt = await bcrypt.genSalt(10);
-        const hashedPassword = await bcrypt.hash(tempPassword, salt);
-
-        // Set the doctor's password to the hashed password
-        doctor.password = hashedPassword;
-
-        // Set the doctor's verification status to true
         doctor.isVerified = true;
-
-        // Set the flag to indicate that the doctor must change their password
-        doctor.mustChangePassword = true;
-
-        // Save the doctor's changes
-        doctor.mustChangePassword = true; // Set the flag
         await doctor.save();
 
-        // Create a transporter for sending emails
+        // Send verification email to doctor
         const transporter = nodemailer.createTransport({
             service: 'Gmail',
             auth: {
@@ -166,64 +151,45 @@ const verifyDoctor = async (req, res) => {
             },
         });
 
-        // Define the mail options
         const mailOptions = {
             from: process.env.EMAIL_USER,
             to: doctor.email,
             subject: 'Your Account has been Verified',
-            text: `Dear Dr. ${doctor.name},\n\nYour account has been successfully verified. You can now log in using the following credentials:\n\nEmail: ${doctor.email}\nTemporary Password: ${tempPassword}\n\nPlease change your password upon first login.\n\nBest regards,\nYour Company`,
+            text: `Dear Dr. ${doctor.name},\n\nYour account has been successfully verified. You can now log in using your existing credentials and change your password upon first login.\n\nBest regards,\nYour Company`,
         };
 
-        // Send the verification email
         await transporter.sendMail(mailOptions);
 
-        // Return success message and doctor object
-        res.status(200).json({ msg: 'Doctor verified and credentials sent successfully', doctor });
+        res.status(200).json({ msg: 'Doctor verified successfully, email sent' });
     } catch (err) {
-        // Return server error message
         res.status(500).json({ msg: 'Server error', error: err.message });
     }
 };
 
-
 // Function to create a new staff member
 const createStaffMember = async (req, res) => {
-    // Destructure the name and email from the request body
     const { name, email } = req.body;
 
     try {
-        // Check if a staff member with the same email already exists
         const existingStaff = await Staff.findOne({ email });
 
         if (existingStaff) {
-            // Return error if a staff member with the same email already exists
             return res.status(400).json({ msg: 'Staff member already exists' });
         }
 
-        // Generate a temporary password
-        const tempPassword = Math.random().toString(36).slice(-8);
-
-        // Generate a salt and hash the temporary password
-        const salt = await bcrypt.genSalt(10);
-        const hashedPassword = await bcrypt.hash(tempPassword, salt);
-
-        // Create a new staff member with the provided name, email, and hashed password
         const newStaff = new Staff({
             name,
             email,
-            password: hashedPassword,
+            isVerified: false,
+            mustChangePassword: true,
         });
 
-        // Save the new staff member to the database
         await newStaff.save();
 
-        // Generate a JWT token for verification
         const token = jwt.sign({ userId: newStaff._id, role: 'staff' }, process.env.JWT_SECRET, { expiresIn: '1d' });
 
-        // Create the verification link using the token
         const verificationLink = `http://localhost:3000/api/staff/verify/${token}`;
 
-        // Create a transporter for sending emails
         const transporter = nodemailer.createTransport({
             service: 'Gmail',
             auth: {
@@ -232,21 +198,17 @@ const createStaffMember = async (req, res) => {
             },
         });
 
-        // Define the mail options
         const mailOptions = {
             from: process.env.EMAIL_USER,
             to: email,
             subject: 'Staff Account Created - Verification Required',
-            text: `Dear ${name},\n\nYour staff account has been created. Please use the following temporary password to log in and change your password upon first login:\n\nTemporary Password: ${tempPassword}\nVerification Link: ${verificationLink}\n\nBest regards,\nYour Company`,
+            text: `Dear ${name},\n\nYour staff account has been created. Please use the following link to verify your account and set your password:\n\nVerification Link: ${verificationLink}\n\nBest regards,\nYour Company`,
         };
 
-        // Send the verification email
         await transporter.sendMail(mailOptions);
 
-        // Return success message
         res.status(201).json({ msg: 'Staff member created and verification email sent' });
     } catch (err) {
-        // Return server error message
         res.status(500).json({ msg: 'Server error', error: err.message });
     }
 };
@@ -274,42 +236,122 @@ const viewAdminDetails = async (req, res) => {
     }
 };
 
-// Function to update admin personal information
+
+// Update admin details including profile picture
 const updateAdminDetails = async (req, res) => {
-    // Get the admin ID from the request user object
-    const adminId = req.user.userId;
-    // Destructure the username and password from the request body
-    const { username, password } = req.body;
+    const token = req.headers.authorization.split(' ')[1];
+    const { username, currentPassword, newPassword } = req.body;
 
     try {
-        // Create an object to store the updates
-        const updates = {};
+        // Verify the JWT token to get the admin ID
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        const admin = await Admin.findById(decoded.userId);
 
-        // If username is provided, add it to the updates object
-        if (username) updates.username = username;
-
-        // If password is provided, hash it and add it to the updates object
-        if (password) {
-            // Generate a salt for password hashing
-            const salt = await bcrypt.genSalt(10);
-            // Hash the password with the generated salt
-            updates.password = await bcrypt.hash(password, salt);
-        }
-
-        // Find the admin by ID, update the provided fields, and return the updated admin
-        const admin = await Admin.findByIdAndUpdate(adminId, updates, { new: true }).select('-password');
-
-        // If admin does not exist, return an error message
+        // Check if admin exists
         if (!admin) {
-            return res.status(404).json({ msg: 'Admin not found' });
+            return res.status(400).send('Invalid token');
         }
 
-        // Return the updated admin details
+        // Update password if provided
+        if (currentPassword && newPassword) {
+            const isMatch = await bcrypt.compare(currentPassword, admin.password);
+            if (!isMatch) {
+                return res.status(400).json({ msg: 'Current password is incorrect' });
+            }
+
+            const salt = await bcrypt.genSalt(10);
+            const hashedPassword = await bcrypt.hash(newPassword, salt);
+            admin.password = hashedPassword;
+        }
+
+        // Update username if provided
+        if (username) {
+            admin.username = username;
+        }
+
+        // Update profile picture if a new one is uploaded
+        if (req.file) {
+            admin.profilePicture = req.file.path;
+        }
+
+        // Save the updated admin details to the database
+        await admin.save();
+
+        // Respond with a success message
         res.status(200).json({ msg: 'Admin details updated successfully', admin });
+    } catch (error) {
+        console.error('Error updating admin details:', error);
+        res.status(400).json({ msg: 'Error updating admin details' });
+    }
+};
+
+
+// Controller function for changing user email
+const changeUserEmail = async (req, res) => {
+    const { userId } = req.params;
+    const { newEmail } = req.body;
+
+    try {
+        let user = await Admin.findById(userId) ||
+                   await Staff.findById(userId) ||
+                   await Doctor.findById(userId) ||
+                   await Patient.findById(userId);
+
+        if (!user) {
+            return res.status(404).json({ msg: 'User not found' });
+        }
+
+        const oldEmail = user.email;
+
+        // Check if the user is a doctor and handle accordingly
+        if (user instanceof Doctor) {
+            user.email = newEmail;
+            user.isVerified = false; // Reset verification status
+            await user.save();
+
+            // Notify the admin to verify the new email
+            const adminEmail = process.env.ADMIN_EMAIL;
+            const subject = 'Doctor Email Change Requires Verification';
+            const html = `
+                <p>Doctor ${user.name} has changed their email to ${newEmail}. Please verify the new email address.</p>
+            `;
+            await sendEmail(adminEmail, subject, html);
+
+            // Send a notification to the old email
+            const notificationMessage = `<p>Your email has been changed from ${oldEmail} to ${newEmail}. The new email requires verification by the admin.</p>`;
+            await sendEmail(oldEmail, 'Email Changed', notificationMessage);
+
+            // Send a verification link to the new email (to inform the doctor that verification is required)
+            const verificationMessage = `<p>Your email change to ${newEmail} requires admin verification. You will be notified once it's verified.</p>`;
+            await sendEmail(newEmail, 'Email Change Pending Verification', verificationMessage);
+
+            return res.status(200).json({ msg: 'Email changed successfully. Admin will verify the new email.' });
+        }
+
+        // For other roles, proceed as before
+        user.email = newEmail;
+        user.isVerified = false;
+        user.mustChangePassword = true; // Reset verification status
+        await user.save();
+
+        // Send notification to the old email
+        const notificationMessage = `<p>Your email has been changed from ${oldEmail} to ${newEmail}.</p>`;
+        await sendEmail(oldEmail, 'Email Changed', notificationMessage);
+
+        // Send a verification link to the new email
+        const token = jwt.sign({ userId: user._id }, process.env.JWT_SECRET, { expiresIn: '1h' });
+        const verificationLink = `http://localhost:3000/api/auth/verify/${token}`;
+        const verificationMessage = `<p>Please verify your new email address by clicking the link: <a href="${verificationLink}">${verificationLink}</a></p>`;
+        await sendEmail(newEmail, 'Verify your new email', verificationMessage);
+
+        res.status(200).json({ msg: 'Email changed successfully. Verification link sent to the new email.' });
     } catch (err) {
-        // Return a server error message if an error occurs
+        console.error('Error changing email:', err);
         res.status(500).json({ msg: 'Server error', error: err.message });
     }
 };
 
-module.exports = { loginAdmin, changeAdminPassword, sendDoctorInvitation, verifyDoctor, createStaffMember, viewAdminDetails, updateAdminDetails };
+
+  
+
+module.exports = { loginAdmin, changeAdminPassword, sendDoctorInvitation, verifyDoctor, createStaffMember, viewAdminDetails, updateAdminDetails, changeUserEmail };
