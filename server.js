@@ -1,7 +1,6 @@
 const express = require('express');
 const connectDB = require('./config/db');
 const path = require('path');
-const initPermissions = require('./utils/initPermissions');
 
 
 const patientRoutes = require('./routes/patientRoutes');
@@ -16,7 +15,6 @@ require('dotenv').config();
 
 const app = express();
 
-initPermissions();
 
 // Middleware
 app.use(express.json());
