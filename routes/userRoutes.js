@@ -1,7 +1,6 @@
 const express = require('express');
 const { authMiddleware, roleCheck } = require('../middleware/authMiddleware');
 const { createUser, getUserById, updateUser, deleteUser } = require('../controllers/userController');
-const  PERMISSION_LEVELS  = require('../utils/permissionLevels');
 
 const router = express.Router();
 
