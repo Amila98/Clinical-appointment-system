@@ -4,7 +4,6 @@ const router = express.Router();
 const { uploadMiddleware } = require('../middleware/uploadMiddleware');
 const { loginAdmin, changeAdminPassword, createStaffMember,sendDoctorInvitation, verifyDoctor, viewAdminDetails, updateAdminDetails, changeUserEmail } = require('../controllers/adminController');
 const { authMiddleware, roleCheck } = require('../middleware/authMiddleware');
-const { ADMIN,SUPER_ADMIN, DOCTOR, STAFF, PATIENT } = require('../utils/permissionLevels');
 
 
 
@@ -27,12 +26,12 @@ router.post('/create-staff', authMiddleware, roleCheck(['create_staff']), create
 router.put('/change-email/:userId', authMiddleware, roleCheck(['change_user_email']), changeUserEmail);
 
 
-router.get('/view-admindetails', authMiddleware, roleCheck(ADMIN), viewAdminDetails);
+router.get('/view-admindetails', authMiddleware, roleCheck, viewAdminDetails);
 
-router.put('/update-admindetails', authMiddleware, roleCheck(ADMIN), uploadMiddleware, updateAdminDetails);
+router.put('/update-admindetails', authMiddleware, roleCheck, uploadMiddleware, updateAdminDetails);
 
 
-router.get('/dashboard',authMiddleware, roleCheck(ADMIN), (req, res) => {
+router.get('/dashboard',authMiddleware, roleCheck, (req, res) => {
     res.json({ msg: 'Welcome to Admin Dashboard' });
 });
 
