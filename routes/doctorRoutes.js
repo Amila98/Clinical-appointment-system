@@ -5,7 +5,7 @@ const { uploadMiddleware } = require('../middleware/uploadMiddleware');
 const { registerDoctor,loginDoctor, changeDoctorPassword, viewDoctorDetails, updateDoctorDetails } = require('../controllers/doctorController');
 const auth = require('../middleware/authMiddleware'); // Middleware to authenticate the token
 
-router.post('/register/:token',auth.authMiddleware,roleCheck(['register_doctor']), registerDoctor);
+router.post('/register/:token',auth.authMiddleware, registerDoctor);
 
 // Doctor login route
 router.post('/login', loginDoctor);
