@@ -1,8 +1,8 @@
 const bcrypt = require('bcryptjs');
 const Admin = require('../models/Admin');
 const Staff = require('../models/Staff');
+const Patient = require('../models/Patient');
 const Doctor = require('../models/Doctor');
-const PERMISSION_LEVELS = require('../utils/permissionLevels');
 
 const createUser = async (req, res) => {
     try {
@@ -41,8 +41,7 @@ const createUser = async (req, res) => {
                 email,
                 role,
                 mustChangePassword: true,
-                isVerified: true,
-                permissionLevel: PERMISSION_LEVELS.ADMIN
+                isVerified: true
             });
         } else if (role === 'Staff') {
             if (!name) {
@@ -57,7 +56,7 @@ const createUser = async (req, res) => {
                 email,
                 role,
                 mustChangePassword: true,
-                isVerified: true
+                isVerified: false
             });
         } else if (role === 'Doctor') {
             if (!name || !schedule || !professionalInfo) {
@@ -74,7 +73,7 @@ const createUser = async (req, res) => {
                 schedule, // Include schedule
                 professionalInfo, // Include professionalInfo
                 mustChangePassword: true,
-                isVerified: true
+                isVerified: false
             });
         } else {
             return res.status(400).json({ msg: 'Invalid role' });
