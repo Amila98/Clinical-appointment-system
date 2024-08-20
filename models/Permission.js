@@ -8,10 +8,7 @@ const permissionSchema = new mongoose.Schema({
         required: true,
         unique: true,
     },
-    permissionLevel: {
-        type: Number,
-        required: true
-    }, 
+
     permissions: {
         type: [String],  // Array of permissions
         required: true,
