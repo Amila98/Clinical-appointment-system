@@ -17,7 +17,8 @@ const initPermissions = async () => {
                 'change_admin_password',
                 'view_admin_details',
                 'update_admin_details',
-                'upload-profile-picture'
+                'upload-profile-picture',
+                'create_specialization', 'read_specialization', 'update_specialization', 'delete_specialization'
             ]
         },
         {
@@ -34,7 +35,8 @@ const initPermissions = async () => {
                 'change_admin_password',
                 'view_admin_details',
                 'update_admin_details',
-                'upload-profile-picture'
+                'upload-profile-picture',
+                'create_specialization', 'read_specialization', 'update_specialization', 'delete_specialization'
             ]
         },
         {
