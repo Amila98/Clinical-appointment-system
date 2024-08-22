@@ -7,46 +7,9 @@ const Admin = require('../models/Admin');
 const Doctor = require('../models/Doctor');
 const Staff = require('../models/Staff');
 const Patient = require('../models/Patient');
+const Specialization = require('../models/Specialization');
 
 
-
-// Admin login function
-const loginAdmin = async (req, res) => {
-    // Destructure the username and password from the request body
-    const { username, password } = req.body;
-
-    try {
-        // Find the admin with the provided username
-        const admin = await Admin.findOne({ username });
-
-        // If admin does not exist, return an error message
-        if (!admin) {
-            return res.status(400).json({ msg: 'Invalid credentials' });
-        }
-
-        // Compare the provided password with the hashed password in the database
-        const isMatch = await bcrypt.compare(password, admin.password);
-
-
-        // If passwords do not match, return an error message
-        if (!isMatch) {
-            return res.status(400).json({ msg: 'Invalid credentials' });
-        }
-
-        // If admin must change password, generate a token and return it along with a message
-        if (admin.mustChangePassword) {
-            const token = jwt.sign({ userId: admin._id, role: admin.role }, process.env.JWT_SECRET, { expiresIn: '1d' });
-            return res.status(200).json({ msg: 'Password change required', mustChangePassword: true, token });
-        }
-
-        // Generate a token and return it
-        const token = jwt.sign({ userId: admin._id, role: admin.role, isVerified: admin.isVerified }, process.env.JWT_SECRET, { expiresIn: '1d' });
-        return res.status(200).json({ token }); 
-    } catch (err) {
-        // If an error occurs, return a server error message
-        res.status(500).json({ msg: 'Server error', error: err.message });
-    }
-};
 
 
 const changeAdminPassword = async (req, res) => {
@@ -351,7 +314,55 @@ const changeUserEmail = async (req, res) => {
     }
 };
 
+const manageSpecializations = async (req, res) => {
+    try {
+        const { method } = req;
 
+        switch (method) {
+            case 'POST': { // Create a new specialization
+                const { name, description } = req.body;
+
+                const existingSpec = await Specialization.findOne({ name });
+                if (existingSpec) {
+                    return res.status(400).json({ msg: 'Specialization already exists' });
+                }
+
+                const specialization = new Specialization({ name, description });
+                await specialization.save();
+                return res.status(201).json(specialization);
+            }
+            case 'GET': { // Get all specializations
+                const specializations = await Specialization.find();
+                return res.status(200).json(specializations);
+            }
+            case 'PUT': { // Update an existing specialization
+                const { id, name, description } = req.body;
+
+                const specialization = await Specialization.findById(id);
+                if (!specialization) {
+                    return res.status(404).json({ msg: 'Specialization not found' });
+                }
+
+                specialization.name = name || specialization.name;
+                specialization.description = description || specialization.description;
+                await specialization.save();
+
+                return res.status(200).json(specialization);
+            }
+            case 'DELETE': { // Delete a specialization
+                const { id } = req.body;
+
+                await Specialization.findByIdAndDelete(id);
+                return res.status(200).json({ msg: 'Specialization deleted' });
+            }
+            default: {
+                return res.status(405).json({ msg: 'Method not allowed' });
+            }
+        }
+    } catch (error) {
+        res.status(500).json({ msg: 'Error processing request', error });
+    }
+};
   
 
-module.exports = { loginAdmin, changeAdminPassword, sendDoctorInvitation, verifyDoctor, createStaffMember, viewAdminDetails, updateAdminDetails, changeUserEmail };
+module.exports = { changeAdminPassword, sendDoctorInvitation, verifyDoctor, createStaffMember, viewAdminDetails, updateAdminDetails, changeUserEmail, manageSpecializations };
