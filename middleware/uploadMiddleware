@@ -2,12 +2,12 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 
-// Multer storage configuration
-const storage = multer.diskStorage({
+// A generalized storage configuration function
+const storage = (destinationPath) => multer.diskStorage({
     destination: (req, file, cb) => {
-        const uploadPath = path.join(__dirname, '../uploads');
+        const uploadPath = path.join(__dirname, destinationPath);
         if (!fs.existsSync(uploadPath)) {
-            fs.mkdirSync(uploadPath);
+            fs.mkdirSync(uploadPath, { recursive: true });
         }
         cb(null, uploadPath);
     },
@@ -18,24 +18,41 @@ const storage = multer.diskStorage({
     }
 });
 
-// Initialize Multer with the storage configuration
-const upload = multer({ 
-    storage,
-    limits: { fileSize: 5 * 1024 * 1024 }, // Optional: Set file size limits (5MB)
-    fileFilter: (req, file, cb) => {
-        const allowedFileTypes = /jpeg|jpg|png/;
-        const extname = allowedFileTypes.test(path.extname(file.originalname).toLowerCase());
-        const mimeType = allowedFileTypes.test(file.mimetype);
+// Generalized upload function
+const uploadFiles = (allowedFileTypes, destinationPath, fieldName, fileSizeLimit) => {
+    return multer({
+        storage: storage(destinationPath),
+        limits: { fileSize: fileSizeLimit }, // Example: 5MB or 20MB depending on usage
+        fileFilter: (req, file, cb) => {
+            const extname = allowedFileTypes.test(path.extname(file.originalname).toLowerCase());
+            const mimeType = allowedFileTypes.test(file.mimetype);
 
-        if (mimeType && extname) {
-            return cb(null, true);
-        } else {
-            cb(new Error('Only .jpeg, .jpg, and .png files are allowed!'));
+            if (mimeType && extname) {
+                return cb(null, true);
+            } else {
+                cb(new Error(`Only ${allowedFileTypes} files are allowed!`));
+            }
         }
-    }
-});
+    }).single(fieldName);
+};
 
-// Middleware for uploading profile picture
-const uploadMiddleware = upload.single('profilePicture');
+// Define the specific configurations for image uploads
+const uploadImageMiddleware = uploadFiles(
+    /jpeg|jpg|png/,
+    '../uploads',
+    'profilePicture',
+    5 * 1024 * 1024 // 5MB file size limit
+);
 
-module.exports = { uploadMiddleware };
+// Define the specific configurations for medical file uploads
+const uploadMedicalFileMiddleware = uploadFiles(
+    /jpeg|jpg|png|pdf|doc|docx/,
+    '../medical-files',
+    'medicalFile',
+    20 * 1024 * 1024 // 20MB file size limit
+);
+
+module.exports = { 
+    uploadImageMiddleware, // Middleware for image uploads
+    uploadMedicalFileMiddleware // Middleware for medical file uploads
+};
