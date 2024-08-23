@@ -4,23 +4,71 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 
 const registerPatient = async (req, res) => {
-  // Destructure the request body
-  const { name, email, password } = req.body;
+  const { 
+    firstName, 
+    lastName, 
+    email, 
+    phoneNumber, 
+    dob, 
+    gender, 
+    address, 
+    city, 
+    state, 
+    zipCode, 
+    medicalHistory, 
+    currentMedications, 
+    allergies, 
+    emergencyContactName, 
+    emergencyContactPhone, 
+    emergencyAddress, 
+    emergencyRelationship, 
+    username, 
+    password, 
+    confirmPassword, 
+    medicalFiles 
+  } = req.body;
 
   try {
-    // Check if user already exists
+    // Check if the patient already exists
     let patient = await Patient.findOne({ email });
 
     if (patient) {
-      // User already exists, return an error response
-      return res.status(400).json({ msg: 'User already exists' });
+      return res.status(400).json({ 
+        success: false, 
+        msg: 'User already exists' 
+      });
     }
 
-    // Create a new patient object
+    // Check if passwords match
+    if (password !== confirmPassword) {
+      return res.status(400).json({ 
+        success: false, 
+        msg: 'Passwords do not match' 
+      });
+    }
+
+    // Create a new patient object with the additional fields
     patient = new Patient({
-      name,
+      firstName,
+      lastName,
       email,
+      phoneNumber,
+      dob,
+      gender,
+      address,
+      city,
+      state,
+      zipCode,
+      medicalHistory,
+      currentMedications,
+      allergies,
+      emergencyContactName,
+      emergencyContactPhone,
+      emergencyAddress,
+      emergencyRelationship,
+      username,
       password,
+      medicalFiles,
       role: 'patient',
       isVerified: false,
     });
@@ -33,7 +81,11 @@ const registerPatient = async (req, res) => {
     await patient.save();
 
     // Generate JWT token for verification
-    const token = jwt.sign({ userId: patient._id }, process.env.JWT_SECRET, { expiresIn: '1h' });
+    const token = jwt.sign(
+      { userId: patient._id }, 
+      process.env.JWT_SECRET, 
+      { expiresIn: '1h' }
+    );
 
     // Generate the verification link
     const verificationLink = `http://localhost:3000/api/auth/verify/${token}`;
@@ -45,11 +97,17 @@ const registerPatient = async (req, res) => {
     await sendEmail(patient.email, 'Verify your email', message);
 
     // Return a success response
-    res.status(200).json({ msg: 'Registration successful, please verify your email' });
+    res.status(200).json({ 
+      success: true, 
+      msg: 'Registration successful, please verify your email' 
+    });
   } catch (err) {
-    // Log the error and return an error response
     console.error(err.message);
-    res.status(500).json({ msg: 'Server error', error: err.message });
+    res.status(500).json({ 
+      success: false, 
+      msg: 'Server error', 
+      error: err.message 
+    });
   }
 };
 
@@ -86,37 +144,6 @@ const verify = async (req, res) => {
 };
 
 
-const loginUser = async (req, res) => {
-  // Destructure email and password from request body
-  const { email, password } = req.body;
-
-  try {
-    // Find the patient with the provided email
-    const patient = await Patient.findOne({ email });
-
-    // If patient does not exist, return an error message
-    if (!patient) {
-      return res.status(400).json({ msg: 'Invalid credentials' });
-    }
-
-    // Compare the provided password with the hashed password in the database
-    const isMatch = await bcrypt.compare(password, patient.password);
-
-    // If passwords do not match, return an error message
-    if (!isMatch) {
-      return res.status(400).json({ msg: 'Invalid credentials' });
-    }
-
-    // Generate a token and return it
-    const token = jwt.sign({ userId: patient._id, role: patient.role }, process.env.JWT_SECRET, { expiresIn: '1h' });
-
-    res.status(200).json({ token });
-  } catch (err) {
-    // If an error occurs, return a server error message
-    console.error(err.message);
-    res.status(500).json({ msg: 'Server error', error: err.message });
-  }
-};
 
 // Request password reset
 const requestPasswordReset = async (req, res) => {
@@ -284,7 +311,6 @@ const updatePatientDetails = async (req, res) => {
 module.exports = {
   registerPatient,
   verify,
-  loginUser,
   requestPasswordReset,
   resetPassword,
   viewPatientDetails,
