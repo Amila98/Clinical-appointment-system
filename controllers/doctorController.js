@@ -4,10 +4,11 @@ const jwt = require('jsonwebtoken');
 const nodemailer = require('nodemailer');
 const sendEmail = require('../utils/sendEmail');
 const Doctor = require('../models/Doctor');
+const Schedule = require('../models/Schedule');
 const Specialization = require('../models/Specialization');
 
 const registerDoctor = async (req, res) => {
-    const { name, email, password, professionalInfo, schedule, specializations } = req.body;
+    const { name, email, password, professionalInfo, schedules, specializations } = req.body;
 
     try {
         // Hash the password
@@ -25,13 +26,44 @@ const registerDoctor = async (req, res) => {
             email,
             password: hashedPassword,
             professionalInfo,
-            schedule,
             specializations: selectedSpecializations.map(spec => spec._id), // Reference selected specializations
             isVerified: false,
             mustChangePassword: true,
         });
 
         await newDoctor.save();
+
+        // Process schedules if provided
+        if (schedules && schedules.length > 0) {
+            const schedulePromises = schedules.map(async (sched) => {
+                const { specializationId, day, startTime, endTime } = sched;
+
+                // Ensure specialization is valid
+                const specialization = await Specialization.findById(specializationId);
+                if (!specialization) {
+                    throw new Error(`Specialization not found with ID: ${specializationId}`);
+                }
+
+                // Create the schedule
+                const newSchedule = new Schedule({
+                    doctor: newDoctor._id,
+                    specialization: specializationId,
+                    day,
+                    startTime,
+                    endTime,
+                });
+
+                await newSchedule.save();
+
+                // Add schedule ID to doctor's schedules array
+                newDoctor.schedules.push(newSchedule._id);
+            });
+
+            await Promise.all(schedulePromises);
+
+            // Save doctor again with updated schedules
+            await newDoctor.save();
+        }
 
         // Notify admin for verification
         const adminEmail = process.env.ADMIN_EMAIL;
@@ -154,4 +186,97 @@ const updateDoctorDetails = async (req, res) => {
     }
 };
 
-module.exports = { registerDoctor, changeDoctorPassword, viewDoctorDetails, updateDoctorDetails, };
+
+const manageSchedules = async (req, res) => {
+    const { method } = req;
+
+    switch (method) {
+        case 'POST': // Create a new schedule
+            try {
+                const { doctorId, specializationId, day, startTime, endTime } = req.body;
+
+                const doctor = await Doctor.findById(doctorId);
+                if (!doctor) {
+                    return res.status(404).json({ msg: 'Doctor not found' });
+                }
+
+                const specialization = await Specialization.findById(specializationId);
+                if (!specialization) {
+                    return res.status(404).json({ msg: 'Specialization not found' });
+                }
+
+                const schedule = new Schedule({
+                    doctor: doctor._id,
+                    specialization: specialization._id,
+                    day,
+                    startTime,
+                    endTime
+                });
+
+                await schedule.save();
+
+                // Optionally, add schedule to doctor's schedules array
+                doctor.schedules.push(schedule._id);
+                await doctor.save();
+
+                return res.status(201).json({ msg: 'Schedule added successfully', schedule });
+            } catch (error) {
+                return res.status(500).json({ msg: 'Error adding schedule', error: error.message });
+            }
+
+        case 'GET': // Retrieve schedules
+            try {
+                const { doctorId } = req.query;
+                const filter = doctorId ? { doctor: doctorId } : {};
+
+                const schedules = await Schedule.find(filter).populate('doctor').populate('specialization');
+                return res.status(200).json(schedules);
+            } catch (error) {
+                return res.status(500).json({ msg: 'Error retrieving schedules', error: error.message });
+            }
+
+        case 'PUT': // Update a schedule
+            try {
+                const { scheduleId, day, startTime, endTime } = req.body;
+
+                const schedule = await Schedule.findById(scheduleId);
+                if (!schedule) {
+                    return res.status(404).json({ msg: 'Schedule not found' });
+                }
+
+                schedule.day = day || schedule.day;
+                schedule.startTime = startTime || schedule.startTime;
+                schedule.endTime = endTime || schedule.endTime;
+
+                await schedule.save();
+                return res.status(200).json({ msg: 'Schedule updated successfully', schedule });
+            } catch (error) {
+                return res.status(500).json({ msg: 'Error updating schedule', error: error.message });
+            }
+
+        case 'DELETE': // Delete a schedule
+            try {
+                const { scheduleId } = req.body;
+
+                const schedule = await Schedule.findByIdAndDelete(scheduleId);
+                if (!schedule) {
+                    return res.status(404).json({ msg: 'Schedule not found' });
+                }
+
+                // Optionally, remove schedule from doctor's schedules array
+                await Doctor.updateOne(
+                    { _id: schedule.doctor },
+                    { $pull: { schedules: schedule._id } }
+                );
+
+                return res.status(200).json({ msg: 'Schedule deleted successfully' });
+            } catch (error) {
+                return res.status(500).json({ msg: 'Error deleting schedule', error: error.message });
+            }
+
+        default:
+            return res.status(405).json({ msg: 'Method not allowed' });
+    }
+};
+
+module.exports = { registerDoctor, changeDoctorPassword, viewDoctorDetails, updateDoctorDetails,manageSchedules };
