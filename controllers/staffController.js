@@ -42,47 +42,6 @@ const verifyStaff = async (req, res) => {
     }
 };
 
-const loginStaff = async (req, res) => {
-    // Destructure email and password from request body
-    const { email, password } = req.body;
-
-    try {
-        // Find the staff member with the provided email
-        const staff = await Staff.findOne({ email });
-
-        // If staff member does not exist or is not verified, return error
-        if (!staff || !staff.isVerified) {
-            return res.status(400).send('Invalid email or email not verified');
-        }
-
-        // Compare provided password with hashed password in database
-        const isMatch = await bcrypt.compare(password, staff.password);
-
-        // If passwords do not match, return error
-        if (!isMatch) {
-            return res.status(400).send('Invalid password');
-        }
-
-        // If staff member must change password on first login
-        if (staff.mustChangePassword) {
-            // Generate a token with an expiration time of 1 hour
-            // User must change password on first login
-            const token = jwt.sign({ id: staff._id }, process.env.JWT_SECRET, { expiresIn: '1h' });
-            // Return success message with token
-            return res.status(200).json({ msg: 'Password change required', token });
-        }
-
-        // If no password change is required
-        // Generate a token with an expiration time of 1 day
-        const token = jwt.sign({ id: staff._id }, process.env.JWT_SECRET, { expiresIn: '1d' });
-        // Return success message with token
-        res.status(200).json({ token });
-    } catch (error) {
-        // If an error occurs, return error message
-        res.status(400).send('Error logging in');
-    }
-};
-
 
 
 const changePassword = async (req, res) => {
@@ -192,4 +151,4 @@ const updateStaffDetails = async (req, res) => {
 };
 
 
-module.exports = { verifyStaff, loginStaff, changePassword,viewStaffDetails, updateStaffDetails };
+module.exports = { verifyStaff, changePassword,viewStaffDetails, updateStaffDetails };
