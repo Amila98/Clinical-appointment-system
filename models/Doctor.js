@@ -1,9 +1,7 @@
-// models/doctor.js
+// models/Doctor.js
 const mongoose = require('mongoose');
-const Schema = mongoose.Schema;
-const PERMISSION_LEVELS = require('../utils/permissionLevels');
 
-const DoctorSchema = new Schema({
+const DoctorSchema = new mongoose.Schema({
     name: {
         type: String,
         required: true
@@ -21,10 +19,6 @@ const DoctorSchema = new Schema({
         type: String,
         required: true
     },
-    schedule: { 
-        type: String,
-        required: true 
-    },
     role: {
         type: String,
         default: 'Doctor',
@@ -37,8 +31,17 @@ const DoctorSchema = new Schema({
         type: Boolean,
         default: false
     },
-    profilePicture: { type: String, default: '' },
-    permissionLevel: { type: Number, default: PERMISSION_LEVELS.DOCTOR }
+    profilePicture: { 
+        type: String, default: '' 
+    },
+    specializations: [{
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Specialization'
+    }],
+    schedules: [{
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Schedule'
+    }]
 });
 
 const Doctor = mongoose.model('Doctor', DoctorSchema);
