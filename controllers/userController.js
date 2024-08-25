@@ -1,8 +1,54 @@
+const jwt = require('jsonwebtoken'); // Import jsonwebtoken
 const bcrypt = require('bcryptjs');
 const Admin = require('../models/Admin');
 const Staff = require('../models/Staff');
 const Patient = require('../models/Patient');
 const Doctor = require('../models/Doctor');
+
+
+const loginUser = async (req, res) => {
+    const { email, password } = req.body;
+
+    try {
+        // Find the user across all roles by email
+        const user = await Admin.findOne({ email }) ||
+                     await Doctor.findOne({ email }) ||
+                     await Patient.findOne({ email }) ||
+                     await Staff.findOne({ email });
+
+        if (!user) {
+            return res.status(400).json({ msg: 'Invalid credentials' });
+        }
+
+        // Check if the user is verified (only for non-admin roles)
+        if (!(user instanceof Admin) && !user.isVerified) {
+            return res.status(403).json({ msg: 'Account not verified. Please complete the verification process.' });
+        }
+
+        // Compare the provided password with the hashed password in the database
+        const isMatch = await bcrypt.compare(password, user.password);
+        if (!isMatch) {
+            return res.status(400).json({ msg: 'Invalid credentials' });
+        }
+
+        // Determine the user role for the token
+        const role = user.role;
+
+        // If the user must change their password (and is not a patient)
+        if (user.mustChangePassword && role !== 'patient') {
+            const token = jwt.sign({ userId: user._id, role }, process.env.JWT_SECRET, { expiresIn: '1d' });
+            return res.status(200).json({ msg: 'Password change required', mustChangePassword: true, token });
+        }
+
+        // Generate the token
+        const token = jwt.sign({ userId: user._id, role, isVerified: user.isVerified }, process.env.JWT_SECRET, { expiresIn: '1d' });
+
+        return res.status(200).json({ token });
+
+    } catch (err) {
+        res.status(500).json({ msg: 'Server error', error: err.message });
+    }
+};
 
 const createUser = async (req, res) => {
     try {
@@ -88,12 +134,14 @@ const createUser = async (req, res) => {
     }
 };
 
-// Get user by role and ID
+
 const getUserById = async (req, res) => {
     try {
+        // Destructure role and id from request parameters
         const { role, id } = req.params;
         let user;
 
+        // Check role and find user document from respective model
         if (role === 'Admin') {
             user = await Admin.findById(id);
         } else if (role === 'Staff') {
@@ -101,27 +149,39 @@ const getUserById = async (req, res) => {
         } else if (role === 'Doctor') {
             user = await Doctor.findById(id);
         } else {
+            // Return error response if role is invalid
             return res.status(400).json({ msg: 'Invalid role' });
         }
 
+        // Return error response if user is not found
         if (!user) {
             return res.status(404).json({ msg: 'User not found' });
         }
 
+        // Return user document as JSON response
         res.status(200).json(user);
     } catch (error) {
+        // Log and return error response if an error occurs
         console.error('Error getting user:', error);
         res.status(500).json({ msg: 'Server error', error: error.message });
     }
 };
 
-// Update user by role and ID
+/**
+ * Update user by role and ID
+ * @param {Object} req - The request object
+ * @param {Object} res - The response object
+ * @returns {Promise<void>} - A promise that resolves when the function completes
+ */
 const updateUser = async (req, res) => {
     try {
+        // Destructure role and id from request parameters
         const { role, id } = req.params;
+        // Destructure updates from request body
         const updates = req.body;
         let user;
 
+        // Find user document from respective model based on role
         if (role === 'Admin') {
             user = await Admin.findById(id);
         } else if (role === 'Staff') {
@@ -129,34 +189,42 @@ const updateUser = async (req, res) => {
         } else if (role === 'Doctor') {
             user = await Doctor.findById(id);
         } else {
+            // Return error response if role is invalid
             return res.status(400).json({ msg: 'Invalid role' });
         }
 
+        // Return error response if user is not found
         if (!user) {
             return res.status(404).json({ msg: 'User not found' });
         }
 
-        // Update user fields
+        // Update user fields from updates
         Object.keys(updates).forEach(key => {
             if (user[key] !== undefined) {
                 user[key] = updates[key];
             }
         });
 
+        // Save the updated user document
         await user.save();
+
+        // Return success response with updated user document
         res.status(200).json({ msg: `${role} updated successfully`, user });
     } catch (error) {
+        // Log and return error response if an error occurs
         console.error('Error updating user:', error);
         res.status(500).json({ msg: 'Server error', error: error.message });
     }
 };
 
-// Delete user by role and ID
+
 const deleteUser = async (req, res) => {
     try {
+        // Destructure role and id from request parameters
         const { role, id } = req.params;
         let result;
 
+        // Find user document from respective model based on role and delete it
         if (role === 'Admin') {
             result = await Admin.findByIdAndDelete(id);
         } else if (role === 'Staff') {
@@ -164,19 +232,23 @@ const deleteUser = async (req, res) => {
         } else if (role === 'Doctor') {
             result = await Doctor.findByIdAndDelete(id);
         } else {
+            // Return error response if role is invalid
             return res.status(400).json({ msg: 'Invalid role' });
         }
 
+        // Return error response if user is not found
         if (!result) {
             return res.status(404).json({ msg: 'User not found' });
         }
 
+        // Return success response with the deleted user's role
         res.status(200).json({ msg: `${role} deleted successfully` });
     } catch (error) {
+        // Log and return error response if an error occurs
         console.error('Error deleting user:', error);
         res.status(500).json({ msg: 'Server error', error: error.message });
     }
 };
 
 
-module.exports = { createUser, getUserById, updateUser, deleteUser };
+module.exports = { loginUser, createUser, getUserById, updateUser, deleteUser };
