@@ -1,5 +1,4 @@
 const mongoose = require('mongoose');
-const PERMISSION_LEVELS = require('../utils/permissionLevels');
 
 const adminSchema = new mongoose.Schema({
     username: {
@@ -31,16 +30,6 @@ const adminSchema = new mongoose.Schema({
     },
     profilePicture: { 
         type: String 
-    },
-    permissionLevel: { 
-        type: Number, 
-        default: PERMISSION_LEVELS.SUPER_ADMIN, 
-        required: true 
-    },
-    // Optional: additional permissions array for custom admin permissions
-    permissions: {
-        type: [String],
-        default: []
     }
 });
 
