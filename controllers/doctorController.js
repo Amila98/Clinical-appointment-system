@@ -136,7 +136,7 @@ const updateDoctorDetails = async (req, res) => {
     // Extract the token from the request headers
     const token = req.headers.authorization.split(' ')[1];
     // Destructure the request body properties
-    const { name, professionalInfo, schedule, currentPassword, newPassword } = req.body;
+    const { name, professionalInfo, currentPassword, newPassword } = req.body;
 
     try {
         // Verify the token and decode the user ID
