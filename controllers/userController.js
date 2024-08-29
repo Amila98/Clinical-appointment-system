@@ -4,6 +4,26 @@ const Admin = require('../models/Admin');
 const Staff = require('../models/Staff');
 const Patient = require('../models/Patient');
 const Doctor = require('../models/Doctor');
+const Permission = require('../models/Permission');
+
+
+// Function to get the model based on the user's role
+const getUserModel = async (userId) => {
+    const admin = await Admin.findById(userId);
+    if (admin) return Admin;
+
+    const doctor = await Doctor.findById(userId);
+    if (doctor) return Doctor;
+
+    const staff = await Staff.findById(userId);
+    if (staff) return Staff;
+
+    const patient = await Patient.findById(userId);
+    if (patient) return Patient;
+
+    return null;  // If no role matches
+};
+
 
 
 const loginUser = async (req, res) => {
@@ -35,52 +55,84 @@ const loginUser = async (req, res) => {
         const role = user.role;
 
         // If the user must change their password (and is not a patient)
-        if (user.mustChangePassword && role !== 'patient') {
+        if (user.mustChangePassword && role !== 'Patient') {
             const token = jwt.sign({ userId: user._id, role }, process.env.JWT_SECRET, { expiresIn: '1d' });
             return res.status(200).json({ msg: 'Password change required', mustChangePassword: true, token });
         }
 
-        // Generate the token
-        const token = jwt.sign({ userId: user._id, role, isVerified: user.isVerified }, process.env.JWT_SECRET, { expiresIn: '1d' });
+        // Fetch permissions directly as an object with boolean values
+        const permissionDoc = await Permission.findOne({ role: user.role });
 
+        if (!permissionDoc) {
+        return res.status(403).json({ msg: 'Access denied: role permissions not found' });
+        }
+
+        // Extract permissions from the document
+        const permissions = permissionDoc.permissions || {};
+
+        // Generate the token with permissions included
+        const token = jwt.sign({ userId: user._id, role, isVerified: user.isVerified, permissions: permissions }, process.env.JWT_SECRET, { expiresIn: '1d' });
+
+        console.log('Generated JWT Payload:', { userId: user._id, role, isVerified: user.isVerified, permissions: permissions });
+
+        // Return token (you don't need to return permissions separately)
         return res.status(200).json({ token });
 
     } catch (err) {
+    res.status(500).json({ msg: 'Server error', error: err.message });
+    }
+};
+
+const viewUserDetails = async (req, res) => {
+    // Get the user ID from the request user object (token)
+    const userId = req.user.userId;
+
+    try {
+        // Determine the model based on the user's ID
+        const UserModel = await getUserModel(userId);
+        if (!UserModel) {
+            return res.status(404).json({ msg: 'User not found' });
+        }
+
+        // Find the user by ID and exclude the password field
+        const user = await UserModel.findById(userId).select('-password');
+        if (!user) {
+            return res.status(404).json({ msg: 'User not found' });
+        }
+
+        // Return the user details
+        res.status(200).json(user);
+    } catch (err) {
+        // If an error occurs, return a server error message
         res.status(500).json({ msg: 'Server error', error: err.message });
     }
 };
+
 
 const createUser = async (req, res) => {
     try {
         const { username, password, email, role, name, schedule, professionalInfo } = req.body;
 
-        // Get the role of the user making the request from the decoded JWT
         const requesterRole = req.user.role;
 
-        // Ensure all required fields are provided
         if (!username || !password || !email || !role) {
             return res.status(400).json({ msg: 'Missing required fields' });
         }
 
-        // Check if the user is trying to create a Super Admin
         if (role === 'Super Admin') {
             return res.status(403).json({ msg: 'Cannot create Super Admin through this route' });
         }
 
-        // Ensure only Super Admins can create Admins
         if (role === 'Admin' && requesterRole !== 'Super Admin') {
             return res.status(403).json({ msg: 'Only Super Admins can create Admins' });
         }
 
-        // Generate a salt and hash the password
         const salt = await bcrypt.genSalt(10);
         const hashedPassword = await bcrypt.hash(password, salt);
 
         let user;
 
-        // Determine the model to use based on the role of the user
         if (role === 'Admin') {
-            // Create a new Admin document
             user = new Admin({
                 username,
                 password: hashedPassword,
@@ -88,15 +140,15 @@ const createUser = async (req, res) => {
                 role,
                 mustChangePassword: true,
                 isVerified: true
+                // Ensure 'specializations' is not included here or is handled properly
             });
         } else if (role === 'Staff') {
             if (!name) {
                 return res.status(400).json({ msg: 'Missing required fields: name is required for Staff' });
             }
 
-            // Create a new Staff document
             user = new Staff({
-                name, // Use 'name' field from request
+                name,
                 username,
                 password: hashedPassword,
                 email,
@@ -109,15 +161,14 @@ const createUser = async (req, res) => {
                 return res.status(400).json({ msg: 'Missing required fields: name, schedule, and professionalInfo are required for Doctor' });
             }
 
-            // Create a new Doctor document
             user = new Doctor({
-                name, // Use 'name' field from request
+                name,
                 username,
                 password: hashedPassword,
                 email,
                 role,
-                schedule, // Include schedule
-                professionalInfo, // Include professionalInfo
+                schedule,
+                professionalInfo,
                 mustChangePassword: true,
                 isVerified: false
             });
@@ -125,7 +176,6 @@ const createUser = async (req, res) => {
             return res.status(400).json({ msg: 'Invalid role' });
         }
 
-        // Save the user document to the database
         await user.save();
         res.status(201).json({ msg: `${role} created successfully` });
     } catch (error) {
@@ -167,12 +217,7 @@ const getUserById = async (req, res) => {
     }
 };
 
-/**
- * Update user by role and ID
- * @param {Object} req - The request object
- * @param {Object} res - The response object
- * @returns {Promise<void>} - A promise that resolves when the function completes
- */
+
 const updateUser = async (req, res) => {
     try {
         // Destructure role and id from request parameters
@@ -251,4 +296,5 @@ const deleteUser = async (req, res) => {
 };
 
 
-module.exports = { loginUser, createUser, getUserById, updateUser, deleteUser };
+
+module.exports = { loginUser,viewUserDetails, createUser, getUserById, updateUser, deleteUser };
