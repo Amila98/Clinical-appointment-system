@@ -9,14 +9,12 @@ const doctorRoutes = require('./routes/doctorRoutes');
 const staffRoutes = require('./routes/staffRoutes');
 const authRoutes = require('./routes/authRoutes');
 const userRoutes = require('./routes/userRoutes');
-const initPermissions = require('./utils/initPermissions');
 
 require('dotenv').config();
 
 
 const app = express();
 
-initPermissions();
 
 app.use(cors({
     origin: 'http://localhost:3001',  // Replace with the URL of your frontend
