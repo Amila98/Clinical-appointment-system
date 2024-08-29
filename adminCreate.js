@@ -2,14 +2,10 @@ const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 const Admin = require('./models/Admin');
 require('dotenv').config();
-const PERMISSION_LEVELS = require('./utils/permissionLevels');
 
 const createAdmin = async () => {
     try {
-        await mongoose.connect(process.env.MONGODB_URI, {
-            useNewUrlParser: true,
-            useUnifiedTopology: true,
-        });
+        await mongoose.connect(process.env.MONGODB_URI);
 
         const existingSuperAdmin = await Admin.findOne({ role: 'Super Admin' });
         if (existingSuperAdmin) {
