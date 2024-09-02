@@ -5,6 +5,7 @@ const Staff = require('../models/Staff');
 const Patient = require('../models/Patient');
 const Doctor = require('../models/Doctor');
 const Permission = require('../models/Permission');
+const Appointment = require('../models/Appointment'); 
 
 
 // Function to get the model based on the user's role
@@ -107,6 +108,63 @@ const viewUserDetails = async (req, res) => {
         res.status(500).json({ msg: 'Server error', error: err.message });
     }
 };
+
+const updatePersonalDetails = async (req, res) => {
+    // Extract the JWT token from the Authorization header
+    const token = req.headers.authorization.split(' ')[1];
+
+    try {
+        // Decode the token to get user information
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        const userId = decoded.userId;
+
+        // Determine the model based on the user's ID
+        const UserModel = await getUserModel(userId);
+        if (!UserModel) {
+            return res.status(404).json({ msg: 'User model not found' });
+        }
+
+        // Find the user by ID
+        const user = await UserModel.findById(userId);
+        if (!user) {
+            return res.status(404).json({ msg: 'User not found' });
+        }
+
+        // Extract fields from request body
+        const { currentPassword, newPassword, ...updates } = req.body;
+
+        // Handle password update if provided
+        if (currentPassword && newPassword) {
+            const isMatch = await bcrypt.compare(currentPassword, user.password);
+            if (!isMatch) {
+                return res.status(400).json({ msg: 'Current password is incorrect' });
+            }
+            const salt = await bcrypt.genSalt(10);
+            user.password = await bcrypt.hash(newPassword, salt);
+        }
+
+        // Update other fields (name, contact, profile picture, etc.)
+        Object.keys(updates).forEach((key) => {
+            if (updates[key]) {
+                user[key] = updates[key];
+            }
+        });
+
+        // Update profile picture if a new one is uploaded
+        if (req.file) {
+            user.profilePicture = req.file.path;
+        }
+
+        // Save the updated user details
+        await user.save();
+
+        res.status(200).json({ msg: 'User details updated successfully', user });
+    } catch (error) {
+        console.error('Error updating user details:', error);
+        res.status(400).json({ msg: 'Error updating user details' });
+    }
+};
+
 
 
 const createUser = async (req, res) => {
@@ -295,6 +353,150 @@ const deleteUser = async (req, res) => {
     }
 };
 
+const changeOwnPassword = async (req, res) => {
+    const { newPassword } = req.body;
+    const userId = req.user.userId;
+
+    try {
+        const userModel = await getUserModel(userId);
+
+        if (!userModel) {
+            return res.status(404).json({ msg: 'User not found' });
+        }
+
+        const salt = await bcrypt.genSalt(10);
+        const hashedPassword = await bcrypt.hash(newPassword, salt);
+
+        await userModel.findByIdAndUpdate(userId, { password: hashedPassword, mustChangePassword: false });
+
+        res.status(200).json({ msg: 'Password changed successfully' });
+    } catch (err) {
+        res.status(500).json({ msg: 'Server error', error: err.message });
+    }
+};
+
+const getDoctorsBySpecialization = async (req, res) => {
+    const { specialization_id, date } = req.query;
+
+    try {
+        // Fetch doctors by specialization
+        // and populate the specializations field with the name and description
+        const doctors = await Doctor.find({ specializations: specialization_id })
+            .populate('specializations', 'name description');
+
+        if (!doctors.length) {
+            return res.status(404).json({ msg: 'No doctors found for the given specialization' });
+        }
+
+        // Prepare a date range for the query
+        // Get the start and end of the day for the given date
+        const selectedDate = new Date(date);
+        const startOfDay = new Date(selectedDate.getTime());
+        startOfDay.setHours(0, 0, 0, 0);
+        const endOfDay = new Date(selectedDate.getTime());
+        endOfDay.setHours(23, 59, 59, 999);
+
+        // Fetch appointments and calculate availability for each doctor
+        const doctorsWithAvailability = await Promise.all(doctors.map(async (doctor) => {
+            // Fetch appointments for the doctor on the selected date
+            // and only get the ones that are 'Scheduled'
+            const appointments = await Appointment.find({
+                doctor: doctor._id,
+                date: {
+                    $gte: startOfDay,
+                    $lte: endOfDay
+                },
+                status: 'Scheduled'
+            });
+
+            return {
+                doctor: {
+                    _id: doctor._id,
+                    name: doctor.name,
+                    email: doctor.email,
+                    professionalInfo: doctor.professionalInfo,
+                    specializations: doctor.specializations,
+                },
+                availability: {
+                    // Total number of appointments for the doctor on the selected date
+                    totalAppointments: appointments.length,
+                    // Whether the doctor has any available slots on the selected date
+                    isAvailable: appointments.length < doctor.schedules.length
+                }
+            };
+        }));
+
+        res.status(200).json(doctorsWithAvailability);
+    } catch (error) {
+        console.error('Error fetching doctors by specialization:', error);
+        res.status(500).json({ msg: 'Server error', error: error.message });
+    }
+};
 
 
-module.exports = { loginUser,viewUserDetails, createUser, getUserById, updateUser, deleteUser };
+const getDoctorAvailability = async (req, res) => {
+    const { doctor_id, date } = req.query;  // Assuming date is provided in YYYY-MM-DD format
+
+    try {
+        // Fetch the doctor's details
+        const doctor = await Doctor.findById(doctor_id);
+
+        if (!doctor) {
+            return res.status(404).json({ msg: 'Doctor not found' });
+        }
+
+        // Prepare a date range for the query
+        const selectedDate = new Date(date);
+        const startOfDay = new Date(selectedDate.getTime());
+        startOfDay.setHours(0, 0, 0, 0);
+        const endOfDay = new Date(selectedDate.getTime());
+        endOfDay.setHours(23, 59, 59, 999);
+
+        // Fetch the doctor's appointments for the selected date
+        const appointments = await Appointment.find({
+            doctor: doctor._id,
+            date: {
+                $gte: startOfDay,
+                $lte: endOfDay
+            },
+            status: 'Scheduled'  // Only count scheduled appointments for availability
+        });
+
+        // Check if the doctor has exceeded the 25-appointment limit
+        if (appointments.length >= 25) {
+            return res.status(200).json({ 
+                msg: 'Doctor has reached the appointment limit for the selected date',
+                isAvailable: false,
+                availableSlots: [] 
+            });
+        }
+
+        // Calculate available time slots based on the doctor's schedule
+        const availableSlots = doctor.schedules.filter(slot => {
+            return !appointments.some(appointment => {
+                return appointment.timeSlot.start === slot.start && appointment.timeSlot.end === slot.end;
+            });
+        });
+
+        // Add more details to each available slot
+        const detailedAvailableSlots = availableSlots.map(slot => ({
+            slotId: slot._id,
+            start: slot.start,
+            end: slot.end
+        }));
+
+        res.status(200).json({
+            isAvailable: detailedAvailableSlots.length > 0,
+            availableSlots: detailedAvailableSlots
+        });
+
+    } catch (error) {
+        console.error('Error fetching doctor availability:', error);
+        res.status(500).json({ msg: 'Server error', error: error.message });
+    }
+};
+
+
+
+
+module.exports = { loginUser,viewUserDetails,updatePersonalDetails,changeOwnPassword, createUser, getUserById, updateUser, deleteUser,getDoctorsBySpecialization, getDoctorAvailability };
