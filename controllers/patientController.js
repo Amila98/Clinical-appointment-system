@@ -228,91 +228,10 @@ const resetPassword = async (req, res) => {
   }
 };
 
-const viewPatientDetails = async (req, res) => {
-  // Extract the token from the authorization header
-  const token = req.headers.authorization.split(' ')[1];
-
-  try {
-    // Verify the token and extract the user ID
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-
-    // Find the patient with the corresponding user ID and exclude the password field
-    const patient = await Patient.findById(decoded.userId).select('-password');
-
-    // If patient is not found, return a 404 error response
-    if (!patient) {
-      return res.status(404).json({ msg: 'Patient not found' });
-    }
-
-    // Return the patient object with password excluded
-    res.status(200).json(patient);
-  } catch (err) {
-    // Log the error and return a server error message
-    console.error(err.message);
-    res.status(500).json({ msg: 'Server error', error: err.message });
-  }
-};
-
-
-
-// Function to update patient personal information
-const updatePatientDetails = async (req, res) => {
-  // Extract the token from the request headers
-  const token = req.headers.authorization.split(' ')[1];
-  // Destructure the name, current password, and new password from the request body
-  const { name, currentPassword, newPassword } = req.body;
-
-  try {
-    // Verify the token and decode the user ID
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    // Find the patient by ID
-    const patient = await Patient.findById(decoded.userId);
-    if (!patient) {
-      // If patient is not found, return an error response
-      return res.status(400).send('Invalid token');
-    }
-
-    if (currentPassword && newPassword) {
-      // Check if the current password and new password are provided
-      const isMatch = await bcrypt.compare(currentPassword, patient.password);
-      if (!isMatch) {
-        // If current password is incorrect, return an error response
-        return res.status(400).json({ msg: 'Current password is incorrect' });
-      }
-
-      // Generate a salt for password hashing
-      const salt = await bcrypt.genSalt(10);
-      // Hash the new password with the generated salt
-      const hashedPassword = await bcrypt.hash(newPassword, salt);
-      // Update the password and mustChangePassword flag
-      patient.password = hashedPassword;
-      patient.mustChangePassword = false;
-    }
-
-    // Update the patient's personal information if provided
-    if (name) patient.name = name;
-
-    if (req.file) {
-      patient.profilePicture = req.file.path;
-  }
-
-    // Save the updated patient details to the database
-    await patient.save();
-
-    // Send a success response
-    res.send('Patient details updated successfully');
-  } catch (error) {
-    // Log the error and send an error response to the client
-    console.log('Error updating patient details:', error); // Log the error
-    res.status(400).send('Error updating patient details');
-  }
-};
 
 module.exports = {
   registerPatient,
   verify,
   requestPasswordReset,
-  resetPassword,
-  viewPatientDetails,
-  updatePatientDetails
+  resetPassword
 };
