@@ -6,130 +6,85 @@ const sendEmail = require('../utils/sendEmail');
 const Doctor = require('../models/Doctor');
 const Schedule = require('../models/Schedule');
 const Specialization = require('../models/Specialization');
+const PendingDoctor = require('../models/PendingDoctor');
+const Invitation = require('../models/Invitation');
+
 
 const registerDoctor = async (req, res) => {
-    const { name, email, password, professionalInfo, schedules, specializations } = req.body;
+    const { name, password, professionalInfo, schedules, specializations } = req.body;
+    const { token } = req.params;
 
     try {
-        // Hash the password
+        // Find the invitation with the given token
+        const invitation = await Invitation.findOne({ invitationToken: token });
+
+        if (!invitation || invitation.isInvitationUsed) {
+            return res.status(400).json({ msg: 'Invalid or expired token.' });
+        }
+
+        // Hash the doctor password
         const salt = await bcrypt.genSalt(10);
         const hashedPassword = await bcrypt.hash(password, salt);
 
-        // Validate and find the selected specializations
-        const selectedSpecializations = await Specialization.find({
-            _id: { $in: specializations }
-        });
-
-        // Create and save the doctor
-        const newDoctor = new Doctor({
+        // Create a new doctor with the given information
+        const pendingDoctor = new PendingDoctor({
             name,
-            email,
+            email: invitation.email, // Use the email from the invitation
             password: hashedPassword,
             professionalInfo,
-            specializations: selectedSpecializations.map(spec => spec._id), // Reference selected specializations
-            isVerified: false,
-            mustChangePassword: true,
+            specializations,
+            schedules: [],
         });
 
-        await newDoctor.save();
-
-        // Process schedules if provided
         if (schedules && schedules.length > 0) {
+            // Create schedules for the doctor
             const schedulePromises = schedules.map(async (sched) => {
-                const { specializationId, day, startTime, endTime } = sched;
-
-                // Ensure specialization is valid
+                const { specializationId, date, startTime, endTime } = sched;
                 const specialization = await Specialization.findById(specializationId);
+
                 if (!specialization) {
                     throw new Error(`Specialization not found with ID: ${specializationId}`);
                 }
 
-                // Create the schedule
                 const newSchedule = new Schedule({
-                    doctor: newDoctor._id,
+                    doctor: pendingDoctor._id,
                     specialization: specializationId,
-                    day,
+                    date,
                     startTime,
                     endTime,
                 });
 
                 await newSchedule.save();
-
-                // Add schedule ID to doctor's schedules array
-                newDoctor.schedules.push(newSchedule._id);
+                pendingDoctor.schedules.push(newSchedule._id);
             });
 
+            // Save the schedules
             await Promise.all(schedulePromises);
-
-            // Save doctor again with updated schedules
-            await newDoctor.save();
         }
 
-        // Notify admin for verification
+        // Save the doctor
+        await pendingDoctor.save();
+
+        // Mark the invitation as used
+        invitation.isInvitationUsed = true;
+        await invitation.save();
+
+        // Delete the invitation after successful registration
+        await Invitation.deleteOne({ _id: invitation._id });
+
+        // Send an email to the admin to verify the registration
         const adminEmail = process.env.ADMIN_EMAIL;
-
         const subject = 'New Doctor Registration Needs Verification';
-        const html = `
-            <p>A new doctor has registered with the email ${email}. Please verify the registration by visiting the verification page and approving their account.</p>
-        `;
-
+        const html = `<p>A new doctor has registered with the email ${invitation.email}. Please verify the registration by visiting the verification page and approving their account.</p>`;
+        
         await sendEmail(adminEmail, subject, html);
 
-        // Return success message
         res.status(201).json({ msg: 'Doctor registered successfully. Admin will verify the registration.' });
     } catch (err) {
-        // Return error message
         res.status(500).json({ msg: 'Server error', error: err.message });
     }
 };
 
-
-
-// Controller function to verify doctor account
-const changeDoctorPassword = async (req, res) => {
-    // Destructure newPassword from the request body
-    const { newPassword } = req.body;
-    // Get the doctor ID from the request user object
-    const doctorId = req.user.userId;
-  
-    try {
-        // Generate a salt for password hashing
-        const salt = await bcrypt.genSalt(10);
-        // Hash the new password with the generated salt
-        const hashedPassword = await bcrypt.hash(newPassword, salt);
-  
-        // Find the doctor by ID and update the password and mustChangePassword flag
-        await Doctor.findByIdAndUpdate(doctorId, { password: hashedPassword, mustChangePassword: false });
-  
-        // Return success message
-        res.status(200).json({ msg: 'Password changed successfully' });
-    } catch (err) {
-        // Return server error message
-        res.status(500).json({ msg: 'Server error', error: err.message });
-    }
-};
-
-const viewDoctorDetails = async (req, res) => {
-    // Extract the token from the request headers
-    const token = req.headers.authorization.split(' ')[1];
-
-    try {
-        // Verify the token and decode the user ID
-        const decoded = jwt.verify(token, process.env.JWT_SECRET);
-        // Find the doctor by ID and exclude the password field from the response
-        const doctor = await Doctor.findById(decoded.userId).select('-password');
-        // If the doctor is not found, return a 404 error
-        if (!doctor) {
-            return res.status(404).json({ msg: 'Doctor not found' });
-        }
-
-        // Send the doctor details to the client
-        res.status(200).json(doctor);
-    } catch (err) {
-        // If an error occurs, return a 500 error with the error message
-        res.status(500).json({ msg: 'Server error', error: err.message });
-    }
-};
 
 // Function to update doctor personal information
 const updateDoctorDetails = async (req, res) => {
@@ -208,7 +163,7 @@ const manageSchedules = async (req, res) => {
                 const schedule = new Schedule({
                     doctor: doctor._id,
                     specialization: specialization._id,
-                    day,
+                    date,
                     startTime,
                     endTime
                 });
@@ -237,14 +192,14 @@ const manageSchedules = async (req, res) => {
 
         case 'PUT': // Update a schedule
             try {
-                const { scheduleId, day, startTime, endTime } = req.body;
+                const { scheduleId, date, startTime, endTime } = req.body;
 
                 const schedule = await Schedule.findById(scheduleId);
                 if (!schedule) {
                     return res.status(404).json({ msg: 'Schedule not found' });
                 }
 
-                schedule.day = day || schedule.day;
+                schedule.date = date || schedule.date;
                 schedule.startTime = startTime || schedule.startTime;
                 schedule.endTime = endTime || schedule.endTime;
 
@@ -279,4 +234,4 @@ const manageSchedules = async (req, res) => {
     }
 };
 
-module.exports = { registerDoctor, changeDoctorPassword, viewDoctorDetails, updateDoctorDetails,manageSchedules };
+module.exports = { registerDoctor, updateDoctorDetails,manageSchedules };
