@@ -2,13 +2,13 @@ const jwt = require('jsonwebtoken');
 const bcrypt = require('bcryptjs');
 const Staff = require('../models/Staff');
 
-// Staff login function
-// Function for staff login
 
 const verifyStaff = async (req, res) => {
     // Destructure the token and password from the request body
     const { token } = req.params;
     const { password } = req.body;
+
+    console.log(token, password);
 
     try {
         // Decode the token using the JWT secret
@@ -29,7 +29,6 @@ const verifyStaff = async (req, res) => {
         // Update the staff member's password and verification status
         staff.password = hashedPassword;
         staff.isVerified = true;
-        staff.mustChangePassword = true;
 
         // Save the changes to the staff member
         await staff.save();
@@ -41,6 +40,7 @@ const verifyStaff = async (req, res) => {
         res.status(500).json({ msg: 'Server error', error: err.message });
     }
 };
+
 
 
 
