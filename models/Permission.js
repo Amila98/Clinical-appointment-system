@@ -10,7 +10,8 @@ const permissionSchema = new mongoose.Schema({
     },
 
     permissions: {
-        type: [String],  // Array of permissions
+        type: Map,  // Store permissions as a Map of key-value pairs
+        of: Boolean,  // The values are boolean
         required: true,
     }
     
