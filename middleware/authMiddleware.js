@@ -2,7 +2,6 @@
 const jwt = require('jsonwebtoken');
 const Permission = require('../models/Permission');
 
-
 const authMiddleware = async (req, res, next) => {
     const token = req.header('Authorization')?.replace('Bearer ', '');
 
@@ -20,11 +19,17 @@ const authMiddleware = async (req, res, next) => {
         // Check what's decoded
         console.log('Decoded User Info:', req.user);
 
+        // Ensure `role` is present in the token
+        if (!req.user.role) {
+            return res.status(401).json({ msg: 'Role is missing in the token' });
+        }
+
         next();
     } catch (err) {
         res.status(401).json({ msg: 'Token is not valid', error: err.message });
     }
 };
+
 
 const roleCheck = (requiredPermissions) => {
     return async (req, res, next) => {
