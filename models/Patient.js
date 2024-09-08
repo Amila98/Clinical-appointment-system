@@ -97,7 +97,8 @@ const PatientSchema = new mongoose.Schema({
      type: String 
     },
   mustChangePassword: { 
-    type: Boolean, default: false
+    type: Boolean, 
+    default: false
   },
   profilePicture: { 
     type: String, default: '' 
