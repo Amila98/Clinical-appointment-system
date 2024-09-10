@@ -40,7 +40,7 @@ const sendDoctorInvitation = async (req, res) => {
         const token = jwt.sign({ email }, process.env.JWT_SECRET, { expiresIn: '1d' });
 
         // Create a URL with the token
-        const invitationLink = `http://localhost:3000/api/doctor/register/${token}`;
+        const invitationLink = `http://localhost:3001/api/doctor/register/${token}`;
 
         // Send the invitation email
         let transporter = nodemailer.createTransport({
@@ -74,11 +74,11 @@ const sendDoctorInvitation = async (req, res) => {
 };
 
 
-
 const verifyDoctor = async (req, res) => {
     const { doctorId } = req.body;
 
     try {
+        // Find the pending doctor by ID
         const pendingDoctor = await PendingDoctor.findById(doctorId);
         if (!pendingDoctor) {
             return res.status(404).json({ msg: 'Doctor not found' });
@@ -90,8 +90,7 @@ const verifyDoctor = async (req, res) => {
             email: pendingDoctor.email,
             password: pendingDoctor.password, // Ensure password is transferred
             professionalInfo: pendingDoctor.professionalInfo,
-            specializations: pendingDoctor.specializations,
-            schedules: pendingDoctor.schedules,
+            specializations: pendingDoctor.specializations, // Use the specializations array with schedules
             isVerified: true,
             mustChangePassword: true,
         });
@@ -128,7 +127,7 @@ const verifyDoctor = async (req, res) => {
 
 // Function to create a new staff member
 const createStaffMember = async (req, res) => {
-    const { firstName, lastName, dateOfBirth, gender, email, phoneNumber, address, emergencyContactName, emergencyContactPhone, password } = req.body;
+    const { firstName, lastName, dateOfBirth, gender, email, phoneNumber, address, emergencyContactName, emergencyContactPhone } = req.body;
 
     try {
         // Check if staff member already exists
@@ -149,7 +148,7 @@ const createStaffMember = async (req, res) => {
             emergencyContactName,
             emergencyContactPhone,
             isVerified: false,
-            mustChangePassword: true,
+            mustChangePassword: false,
         });
 
         // Save new staff member to the database
@@ -258,7 +257,7 @@ const changeUserEmail = async (req, res) => {
 
 const manageSpecializations = async (req, res) => {
     try {
-        const { method } = req;
+        const { method } = req; // Get id from request params
 
         switch (method) {
             case 'POST': { // Create a new specialization
@@ -278,7 +277,7 @@ const manageSpecializations = async (req, res) => {
                 return res.status(200).json(specializations);
             }
             case 'PUT': { // Update an existing specialization
-                const { id, name, description } = req.body;
+                const { name, description } = req.body;
 
                 const specialization = await Specialization.findById(id);
                 if (!specialization) {
@@ -292,7 +291,12 @@ const manageSpecializations = async (req, res) => {
                 return res.status(200).json(specialization);
             }
             case 'DELETE': { // Delete a specialization
-                const { id } = req.body;
+                const { id } = req.params; // Get the ID from the URL parameters
+
+                const specialization = await Specialization.findById(id);
+                if (!specialization) {
+                    return res.status(404).json({ msg: 'Specialization not found' });
+                }
 
                 await Specialization.findByIdAndDelete(id);
                 return res.status(200).json({ msg: 'Specialization deleted' });
@@ -305,6 +309,7 @@ const manageSpecializations = async (req, res) => {
         res.status(500).json({ msg: 'Error processing request', error });
     }
 };
+
 
 
   
