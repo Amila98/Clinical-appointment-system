@@ -1,4 +1,5 @@
 const jwt = require('jsonwebtoken'); // Import jsonwebtoken
+const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 const Admin = require('../models/Admin');
 const Staff = require('../models/Staff');
@@ -6,6 +7,7 @@ const Patient = require('../models/Patient');
 const Doctor = require('../models/Doctor');
 const Permission = require('../models/Permission');
 const Appointment = require('../models/Appointment'); 
+
 
 
 // Function to get the model based on the user's role
@@ -24,6 +26,7 @@ const getUserModel = async (userId) => {
 
     return null;  // If no role matches
 };
+
 
 
 
@@ -74,7 +77,6 @@ const loginUser = async (req, res) => {
         // Generate the token with permissions included
         const token = jwt.sign({ userId: user._id, role, isVerified: user.isVerified, permissions: permissions }, process.env.JWT_SECRET, { expiresIn: '1d' });
 
-        console.log('Generated JWT Payload:', { userId: user._id, role, isVerified: user.isVerified, permissions: permissions });
 
         // Return token (you don't need to return permissions separately)
         return res.status(200).json({ token });
@@ -83,7 +85,6 @@ const loginUser = async (req, res) => {
     res.status(500).json({ msg: 'Server error', error: err.message });
     }
 };
-
 const viewUserDetails = async (req, res) => {
     // Get the user ID from the request user object (token)
     const userId = req.user.userId;
@@ -245,21 +246,14 @@ const createUser = async (req, res) => {
 
 const getUserById = async (req, res) => {
     try {
-        // Destructure role and id from request parameters
-        const { role, id } = req.params;
+        const { id } = req.params; // Only extract id from the request parameters
         let user;
 
-        // Check role and find user document from respective model
-        if (role === 'Admin') {
-            user = await Admin.findById(id);
-        } else if (role === 'Staff') {
-            user = await Staff.findById(id);
-        } else if (role === 'Doctor') {
-            user = await Doctor.findById(id);
-        } else {
-            // Return error response if role is invalid
-            return res.status(400).json({ msg: 'Invalid role' });
-        }
+        // Attempt to find the user in each model
+        user = await Admin.findById(id) || 
+               await Staff.findById(id) ||
+               await Patient.findById(id) || 
+               await Doctor.findById(id);
 
         // Return error response if user is not found
         if (!user) {
@@ -375,38 +369,69 @@ const changeOwnPassword = async (req, res) => {
     }
 };
 
+
 const getDoctorsBySpecialization = async (req, res) => {
-    const { specialization_id, date } = req.query;
+    const { specialization_id, day } = req.query;
 
     try {
-        // Fetch doctors by specialization
-        // and populate the specializations field with the name and description
-        const doctors = await Doctor.find({ specializations: specialization_id })
-            .populate('specializations', 'name description');
+        // Fetch doctors based on the specialization
+        const doctors = await Doctor.find({
+            'specializations.specializationId': specialization_id
+        }).populate('specializations.specializationId', 'name description');
 
         if (!doctors.length) {
             return res.status(404).json({ msg: 'No doctors found for the given specialization' });
         }
 
-        // Prepare a date range for the query
-        // Get the start and end of the day for the given date
-        const selectedDate = new Date(date);
-        const startOfDay = new Date(selectedDate.getTime());
-        startOfDay.setHours(0, 0, 0, 0);
-        const endOfDay = new Date(selectedDate.getTime());
-        endOfDay.setHours(23, 59, 59, 999);
-
-        // Fetch appointments and calculate availability for each doctor
+        // Check availability of each doctor on the specific day
         const doctorsWithAvailability = await Promise.all(doctors.map(async (doctor) => {
-            // Fetch appointments for the doctor on the selected date
-            // and only get the ones that are 'Scheduled'
+            // Find the specialization
+            const specialization = doctor.specializations.find(spec => 
+                spec.specializationId.equals(specialization_id)
+            );
+
+            // Filter schedules for the given day
+            const schedulesForDay = specialization.schedules.filter(schedule => schedule.day === day);
+
+            // If no schedules found for the day, return an empty list of schedules
+            if (schedulesForDay.length === 0) {
+                return {
+                    doctor: {
+                        _id: doctor._id,
+                        name: doctor.name,
+                        email: doctor.email,
+                        professionalInfo: doctor.professionalInfo,
+                        specializations: doctor.specializations,
+                    },
+                    schedules: [],
+                    availability: {
+                        totalAppointments: 0,
+                        isAvailable: false,
+                        availableSlots: 0
+                    }
+                };
+            }
+
+            // Fetch appointments for the doctor on the specific day
             const appointments = await Appointment.find({
                 doctor: doctor._id,
-                date: {
-                    $gte: startOfDay,
-                    $lte: endOfDay
-                },
+                day: day,
                 status: 'Scheduled'
+            });
+
+            // Map through the schedules to get availability details
+            const schedulesWithAvailability = schedulesForDay.map(schedule => {
+                const isAvailable = schedule.appointmentCount < schedule.maxAppointments;
+                const availableSlots = schedule.maxAppointments - schedule.appointmentCount;
+
+                return {
+                    ...schedule.toObject(),
+                    availability: {
+                        totalAppointments: appointments.length,
+                        isAvailable: isAvailable,
+                        availableSlots: availableSlots
+                    }
+                };
             });
 
             return {
@@ -417,16 +442,14 @@ const getDoctorsBySpecialization = async (req, res) => {
                     professionalInfo: doctor.professionalInfo,
                     specializations: doctor.specializations,
                 },
-                availability: {
-                    // Total number of appointments for the doctor on the selected date
-                    totalAppointments: appointments.length,
-                    // Whether the doctor has any available slots on the selected date
-                    isAvailable: appointments.length < doctor.schedules.length
-                }
+                schedules: schedulesWithAvailability
             };
         }));
 
-        res.status(200).json(doctorsWithAvailability);
+        // Filter out doctors who don't have any relevant schedules
+        const filteredDoctors = doctorsWithAvailability.filter(doctor => doctor.schedules.length > 0);
+
+        res.status(200).json(filteredDoctors);
     } catch (error) {
         console.error('Error fetching doctors by specialization:', error);
         res.status(500).json({ msg: 'Server error', error: error.message });
@@ -434,64 +457,44 @@ const getDoctorsBySpecialization = async (req, res) => {
 };
 
 
-const getDoctorAvailability = async (req, res) => {
-    const { doctor_id, date } = req.query;  // Assuming date is provided in YYYY-MM-DD format
+
+
+const getAvailableSlotsForDoctor = async (req, res) => {
+    const { doctor_id, day } = req.query;
 
     try {
-        // Fetch the doctor's details
-        const doctor = await Doctor.findById(doctor_id);
+        // Fetch the doctor with their specializations and schedules
+        const doctor = await Doctor.findById(doctor_id)
+            .populate('specializations.specializationId', 'name description');
 
         if (!doctor) {
             return res.status(404).json({ msg: 'Doctor not found' });
         }
 
-        // Prepare a date range for the query
-        const selectedDate = new Date(date);
-        const startOfDay = new Date(selectedDate.getTime());
-        startOfDay.setHours(0, 0, 0, 0);
-        const endOfDay = new Date(selectedDate.getTime());
-        endOfDay.setHours(23, 59, 59, 999);
+        // Initialize the response array for available schedules
+        const availableSchedules = [];
 
-        // Fetch the doctor's appointments for the selected date
-        const appointments = await Appointment.find({
-            doctor: doctor._id,
-            date: {
-                $gte: startOfDay,
-                $lte: endOfDay
-            },
-            status: 'Scheduled'  // Only count scheduled appointments for availability
-        });
+        // Loop through each specialization
+        doctor.specializations.forEach(specialization => {
+            // Filter schedules by the selected day
+            const schedulesForDay = specialization.schedules.filter(schedule => schedule.day === day);
 
-        // Check if the doctor has exceeded the 25-appointment limit
-        if (appointments.length >= 25) {
-            return res.status(200).json({ 
-                msg: 'Doctor has reached the appointment limit for the selected date',
-                isAvailable: false,
-                availableSlots: [] 
-            });
-        }
+            // Loop through each schedule
+            schedulesForDay.forEach(schedule => {
+                // Check if the schedule has available slots
+                const isAvailable = schedule.appointmentCount < schedule.maxAppointments;
 
-        // Calculate available time slots based on the doctor's schedule
-        const availableSlots = doctor.schedules.filter(slot => {
-            return !appointments.some(appointment => {
-                return appointment.timeSlot.start === slot.start && appointment.timeSlot.end === slot.end;
+                availableSchedules.push({
+                    scheduleId: schedule._id,
+                    isAvailable
+                });
             });
         });
 
-        // Add more details to each available slot
-        const detailedAvailableSlots = availableSlots.map(slot => ({
-            slotId: slot._id,
-            start: slot.start,
-            end: slot.end
-        }));
-
-        res.status(200).json({
-            isAvailable: detailedAvailableSlots.length > 0,
-            availableSlots: detailedAvailableSlots
-        });
+        res.status(200).json({ availableSchedules });
 
     } catch (error) {
-        console.error('Error fetching doctor availability:', error);
+        console.error('Error fetching available slots for doctor:', error);
         res.status(500).json({ msg: 'Server error', error: error.message });
     }
 };
@@ -499,4 +502,358 @@ const getDoctorAvailability = async (req, res) => {
 
 
 
-module.exports = { loginUser,viewUserDetails,updatePersonalDetails,changeOwnPassword, createUser, getUserById, updateUser, deleteUser,getDoctorsBySpecialization, getDoctorAvailability };
+const getAvailableDaysForDoctor = async (req, res) => {
+    const { doctor_id, specialization_id } = req.query;
+
+
+    try {
+        // Fetch the doctor's details with specializations populated
+        const doctor = await Doctor.findById(doctor_id)
+            .populate('specializations.specializationId', 'name description');
+
+        if (!doctor) {
+            return res.status(404).json({ msg: 'Doctor not found' });
+        }
+
+        // Find the correct specialization
+        const specialization = doctor.specializations.find(spec =>
+            spec.specializationId.equals(specialization_id)
+        );
+
+        if (!specialization) {
+            return res.status(400).json({ msg: 'Doctor does not have the required specialization' });
+        }
+
+        // Initialize an object to hold available days and their slots
+        let availableDays = {};
+
+        // Loop through each schedule
+        specialization.schedules.forEach(schedule => {
+            const { day, _id, appointmentCount, maxAppointments } = schedule;
+
+            // If the schedule is not fully booked
+            if (appointmentCount < maxAppointments) {
+                const availableSlots = maxAppointments - appointmentCount;  // Number of available slots
+
+                availableDays[day] = {
+                    isAvailable: true,
+                    scheduleId: _id,
+                    availableSlots
+                };
+            }
+        });
+
+        if (Object.keys(availableDays).length === 0) {
+            return res.status(200).json({
+                msg: 'No available days found for the selected doctor',
+                availableDays: []
+            });
+        }
+
+        res.status(200).json({ availableDays });
+
+    } catch (error) {
+        console.error('Error fetching available days for doctor:', error);
+        res.status(500).json({ msg: 'Server error', error: error.message });
+    }
+};
+
+
+
+
+const getPatients = async (req, res) => {
+    try {
+        // Fetch all patients from the database
+        const patients = await Patient.find({}, '_id name email');
+
+        // Check if patients exist
+        if (!patients.length) {
+            return res.status(404).json({ msg: 'No patients found' });
+        }
+
+        // Return the list of patients in JSON format
+        res.status(200).json(patients);
+    } catch (error) {
+        console.error('Error fetching patients:', error);
+        res.status(500).json({ msg: 'Server error', error: error.message });
+    }
+};
+
+const placeAppointment = async (req, res) => {
+    const { doctor_id, patient_id, specialization_id, day, schedule_id } = req.body;
+
+    try {
+        const doctorId = new mongoose.Types.ObjectId(doctor_id);
+        const specializationId = new mongoose.Types.ObjectId(specialization_id);
+        const scheduleId = new mongoose.Types.ObjectId(schedule_id);
+
+        const patient = await Patient.findById(patient_id);
+        if (!patient) {
+            return res.status(404).json({ msg: 'Patient not found' });
+        }
+
+        const doctor = await Doctor.findById(doctorId)
+            .populate('specializations.specializationId', 'name description');
+
+        if (!doctor) {
+            return res.status(404).json({ msg: 'Doctor not found' });
+        }
+
+        const specialization = doctor.specializations.find(spec =>
+            spec.specializationId.equals(specializationId)
+        );
+
+        if (!specialization) {
+            return res.status(400).json({ msg: 'Doctor does not have the required specialization' });
+        }
+
+        const schedule = specialization.schedules.find(sch => 
+            sch._id.equals(scheduleId) && sch.day === day
+        );
+
+        if (!schedule) {
+            return res.status(400).json({ msg: 'Invalid schedule ID or doctor does not work on the selected day.' });
+        }
+
+        const timeLimitPerAppointment = schedule.appointmentTimeLimit || 15; 
+
+        const startTimeString = `1970-01-01T${schedule.startTime}:00Z`;
+        const endTimeString = `1970-01-01T${schedule.endTime}:00Z`;
+
+        const startTime = new Date(startTimeString);
+        const endTime = new Date(endTimeString);
+
+        if (isNaN(startTime.getTime()) || isNaN(endTime.getTime())) {
+            return res.status(400).json({ msg: 'Invalid time format' });
+        }
+
+        const totalMinutes = (endTime - startTime) / 60000; 
+        const maxAppointments = Math.floor(totalMinutes / timeLimitPerAppointment);
+
+        if (schedule.appointmentCount >= maxAppointments) {
+            return res.status(400).json({
+                msg: `All appointment slots are filled for the selected schedule on ${day}. Please choose another day or schedule.`
+            });
+        }
+
+        const nextAvailableSlot = new Date(startTime.getTime() + schedule.appointmentCount * timeLimitPerAppointment * 60000);
+        const appointmentEnd = new Date(nextAvailableSlot.getTime() + timeLimitPerAppointment * 60000);
+
+        if (nextAvailableSlot < startTime || appointmentEnd > endTime) {
+            return res.status(400).json({ msg: 'Appointment time is outside the schedule time range.' });
+        }
+
+        const formatTime = (date) => {
+            if (isNaN(date.getTime())) return 'Invalid';
+            return date.toISOString().substr(11, 5); 
+        };
+
+        // Check for overlapping appointments
+        const existingAppointments = await Appointment.find({
+            doctor: doctorId,
+            day,
+            schedule: scheduleId,
+            $and: [
+                { 'timeSlot.end': { $gt: formatTime(nextAvailableSlot) } },
+                { 'timeSlot.start': { $lt: formatTime(appointmentEnd) } }
+            ]
+        });
+
+        if (existingAppointments.length > 0) {
+            return res.status(400).json({ msg: 'Selected time slot overlaps with an existing appointment.' });
+        }
+
+        // Check if the patient already has an appointment with the doctor on the same day and schedule
+        const existingPatientAppointment = await Appointment.findOne({
+            doctor: doctorId,
+            patient: patient_id,
+            day: day.trim().toLowerCase(),  // Normalize day comparison (optional)
+            schedule: scheduleId
+        });
+        
+
+        if (existingPatientAppointment) {
+            return res.status(400).json({
+                msg: 'Patient already has an appointment with this doctor for the selected schedule on the same day.'
+            });
+        }
+
+        const slotIndex = schedule.appointmentCount;
+
+        const newAppointment = new Appointment({
+            doctor: doctorId,
+            patient: patient_id,
+            day,
+            timeSlot: {
+                start: formatTime(nextAvailableSlot),
+                end: formatTime(appointmentEnd),
+            },
+            specialization: specializationId,
+            schedule: scheduleId,
+            slotIndex 
+        });
+
+        await newAppointment.save();
+
+        schedule.appointmentCount += 1;
+        await doctor.save();
+
+        res.status(201).json({ msg: 'Appointment placed successfully', appointment: newAppointment });
+
+    } catch (error) {
+        console.error('Error placing appointment:', error);
+        res.status(500).json({ msg: 'Server error', error: error.message });
+    }
+};
+
+
+
+
+const manageSchedules = async (req, res) => {
+    const { method } = req;
+    const { specializationId, day, startTime, endTime, appointmentTimeLimit, scheduleIndex, doctorId } = req.body;
+    const userRole = req.user.role;  // Assuming role is stored in the JWT or session
+
+    // Log values for debugging
+    console.log('User Role:', userRole);
+    console.log('Doctor ID from Request Body:', doctorId);
+
+    // Determine which ID to use
+    const idToUse = userRole === 'Admin' && doctorId ? doctorId : req.user.userId;
+    console.log('ID to Use:', idToUse);
+
+    try {
+        // Fetch doctor using the determined ID
+        const doctor = await Doctor.findOne({ _id: idToUse, 'specializations.specializationId': specializationId });
+        if (!doctor) {
+            return res.status(404).json({ msg: 'Doctor or specialization not found' });
+        }
+
+        const specialization = doctor.specializations.find(spec => 
+            spec.specializationId.equals(specializationId)
+        );
+        
+        if (!specialization) {
+            return res.status(400).json({ msg: 'Specialization not found for the doctor.' });
+        }
+
+
+        switch (method) {
+            case 'POST': // Create a new schedule
+                const appointmentLimit = appointmentTimeLimit || 15;
+
+                // Convert start and end time to Date objects
+                const start = new Date(`1970-01-01T${startTime}:00Z`);
+                const end = new Date(`1970-01-01T${endTime}:00Z`);
+
+                // Calculate total time and number of slots
+                const totalMinutes = (end - start) / (1000 * 60);
+                const numSlots = Math.floor(totalMinutes / appointmentLimit);
+
+                let appointmentSlots = [];
+                for (let i = 0; i < numSlots; i++) {
+                    let slotStart = new Date(start.getTime() + i * appointmentLimit * 60000);
+                    let slotEnd = new Date(slotStart.getTime() + appointmentLimit * 60000);
+
+                    appointmentSlots.push({
+                        startTime: slotStart.toISOString().substring(11, 16),
+                        endTime: slotEnd.toISOString().substring(11, 16),
+                    });
+                }
+
+                specialization.schedules.push({
+                    day,
+                    startTime,
+                    endTime,
+                    appointmentTimeLimit: appointmentLimit,
+                    maxAppointments: numSlots,
+                    appointmentSlots: appointmentSlots,
+                    appointmentCount: 0,
+                });
+
+                await doctor.save();
+
+                return res.status(201).json({ msg: 'Schedule added successfully', schedule: { day, startTime, endTime, maxAppointments: numSlots } });
+
+            case 'GET': // Retrieve schedules
+                const schedules = specialization.schedules.map(schedule => ({
+                    doctor: doctor._id,
+                    specialization: {
+                        _id: specialization.specializationId,
+                        // Assuming `name` and `description` are stored in the specializationId document
+                        name: specialization.specializationId.name,  
+                        description: specialization.specializationId.description,
+                    },
+                    day: schedule.day,
+                    startTime: schedule.startTime,
+                    endTime: schedule.endTime,
+                    appointmentTimeLimit: schedule.appointmentTimeLimit,
+                    maxAppointments: schedule.maxAppointments,
+                    appointmentCount: schedule.appointmentCount,
+                    appointmentSlots: schedule.appointmentSlots,
+                }));
+
+                return res.status(200).json(schedules);
+
+            case 'PUT': // Update a schedule
+                if (!specialization.schedules[scheduleIndex]) {
+                    return res.status(404).json({ msg: 'Schedule not found' });
+                }
+
+                const schedule = specialization.schedules[scheduleIndex];
+
+                schedule.day = day || schedule.day;
+                schedule.startTime = startTime || schedule.startTime;
+                schedule.endTime = endTime || schedule.endTime;
+
+                if (appointmentTimeLimit) {
+                    schedule.appointmentTimeLimit = appointmentTimeLimit;
+
+                    // Update maxAppointments and appointmentSlots based on the new time limit
+                    const start = new Date(`1970-01-01T${schedule.startTime}:00Z`);
+                    const end = new Date(`1970-01-01T${schedule.endTime}:00Z`);
+                    const totalMinutes = (end - start) / (1000 * 60);
+                    const numSlots = Math.floor(totalMinutes / appointmentTimeLimit);
+
+                    schedule.maxAppointments = numSlots;
+
+                    schedule.appointmentSlots = [];
+                    for (let i = 0; i < numSlots; i++) {
+                        let slotStart = new Date(start.getTime() + i * appointmentTimeLimit * 60000);
+                        let slotEnd = new Date(slotStart.getTime() + appointmentTimeLimit * 60000);
+
+                        schedule.appointmentSlots.push({
+                            startTime: slotStart.toISOString().substring(11, 16),
+                            endTime: slotEnd.toISOString().substring(11, 16),
+                        });
+                    }
+                }
+
+                await doctor.save();
+                return res.status(200).json({ msg: 'Schedule updated successfully', schedule });
+
+            case 'DELETE': // Delete a schedule
+                if (!specialization.schedules[scheduleIndex]) {
+                    return res.status(404).json({ msg: 'Schedule not found' });
+                }
+
+                specialization.schedules.splice(scheduleIndex, 1);
+                await doctor.save();
+
+                return res.status(200).json({ msg: 'Schedule deleted successfully' });
+
+            default:
+                return res.status(405).json({ msg: 'Method not allowed' });
+        }
+    } catch (error) {
+        return res.status(500).json({ msg: 'Server error', error: error.message });
+    }
+};
+
+
+
+
+
+
+module.exports = { loginUser,viewUserDetails,updatePersonalDetails,changeOwnPassword, createUser, getUserById, updateUser,
+     deleteUser,getDoctorsBySpecialization,getAvailableSlotsForDoctor,getAvailableDaysForDoctor,getPatients,placeAppointment,manageSchedules };
