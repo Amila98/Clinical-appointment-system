@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { uploadProfilePicture, changePassword } = require('../controllers/authController');
-const { authMiddleware, verifyMiddleware, roleCheck } = require('../middleware/authMiddleware');
+const { authMiddleware, roleCheck } = require('../middleware/authMiddleware');
 const { uploadImageMiddleware } = require('../middleware/uploadMiddleware');
 
 
@@ -9,7 +9,7 @@ const { uploadImageMiddleware } = require('../middleware/uploadMiddleware');
 router.post('/change-password', changePassword);
 
 // Route to upload profile picture
-router.post('/upload-profile-picture', authMiddleware, verifyMiddleware,uploadImageMiddleware,roleCheck(['upload-profile-picture']), uploadProfilePicture);
+router.post('/upload-profile-picture', authMiddleware,uploadImageMiddleware, roleCheck(['upload_profile_picture']), uploadProfilePicture);
 
 
 module.exports = router;
