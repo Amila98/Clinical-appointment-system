@@ -1,58 +1,42 @@
 const multer = require('multer');
 const path = require('path');
-const fs = require('fs');
 
-// A generalized storage configuration function
-const storage = (destinationPath) => multer.diskStorage({
-    destination: (req, file, cb) => {
-        const uploadPath = path.join(__dirname, destinationPath);
-        if (!fs.existsSync(uploadPath)) {
-            fs.mkdirSync(uploadPath, { recursive: true });
+// Configure Multer to store the file in memory
+const uploadImageMiddleware = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 5 * 1024 * 1024 }, // Limit file size to 5MB
+    fileFilter: (req, file, cb) => {
+        const allowedFileTypes = /jpeg|jpg|png|gif/;
+        const extname = allowedFileTypes.test(path.extname(file.originalname).toLowerCase());
+        const mimetype = allowedFileTypes.test(file.mimetype);
+
+        if (mimetype && extname) {
+            return cb(null, true);
+        } else {
+            cb(new Error('Only image files are allowed!'));
         }
-        cb(null, uploadPath);
     },
-    filename: (req, file, cb) => {
-        const fileExtension = path.extname(file.originalname);
-        const fileName = `${req.user.userId}-${Date.now()}${fileExtension}`;
-        cb(null, fileName);
-    }
-});
+}).single('profilePicture');
 
-// Generalized upload function
-const uploadFiles = (allowedFileTypes, destinationPath, fieldName, fileSizeLimit) => {
-    return multer({
-        storage: storage(destinationPath),
-        limits: { fileSize: fileSizeLimit }, // Example: 5MB or 20MB depending on usage
-        fileFilter: (req, file, cb) => {
-            const extname = allowedFileTypes.test(path.extname(file.originalname).toLowerCase());
-            const mimeType = allowedFileTypes.test(file.mimetype);
 
-            if (mimeType && extname) {
-                return cb(null, true);
-            } else {
-                cb(new Error(`Only ${allowedFileTypes} files are allowed!`));
-            }
+// Configure Multer to store the file in memory
+const uploadMedicalFileMiddleware = multer({
+    storage: multer.memoryStorage(),
+    limits: { fileSize: 10 * 1024 * 1024 }, // Limit file size to 10MB
+    fileFilter: (req, file, cb) => {
+        // Define acceptable MIME types for medical files
+        const allowedFileTypes = /pdf|doc|docx|png|jpeg|jpg/;
+        const extname = allowedFileTypes.test(path.extname(file.originalname).toLowerCase());
+        const mimetype = allowedFileTypes.test(file.mimetype);
+
+        if (mimetype && extname) {
+            return cb(null, true);
+        } else {
+            cb(new Error('Only medical files are allowed!'));
         }
-    }).single(fieldName);
-};
+    },
+}).array('medicalFile',10); // Ensure this matches the form field name in Postman
 
-// Define the specific configurations for image uploads
-const uploadImageMiddleware = uploadFiles(
-    /jpeg|jpg|png/,
-    '../uploads',
-    'profilePicture',
-    5 * 1024 * 1024 // 5MB file size limit
-);
 
-// Define the specific configurations for medical file uploads
-const uploadMedicalFileMiddleware = uploadFiles(
-    /jpeg|jpg|png|pdf|doc|docx/,
-    '../medical-files',
-    'medicalFile',
-    20 * 1024 * 1024 // 20MB file size limit
-);
 
-module.exports = { 
-    uploadImageMiddleware, // Middleware for image uploads
-    uploadMedicalFileMiddleware // Middleware for medical file uploads
-};
+module.exports = { uploadImageMiddleware, uploadMedicalFileMiddleware };
