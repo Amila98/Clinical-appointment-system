@@ -1,6 +1,5 @@
 const express = require('express');
 const router = express.Router();
-const { uploadProfilePicture } = require('../controllers/authController');
 const { uploadImageMiddleware,uploadMedicalFileMiddleware } = require('../middleware/uploadMiddleware');
 const  {registerPatient, verify, requestPasswordReset, resetPassword, updatePatientDetails }= require('../controllers/patientController');
 const {authMiddleware,roleCheck} = require('../middleware/authMiddleware'); // Middleware to verify JWT token
