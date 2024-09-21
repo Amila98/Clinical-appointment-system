@@ -11,6 +11,11 @@ const AppointmentSchema = new mongoose.Schema({
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Patient',  // Reference to the Patient model if you have one
     },
+
+    specialization: { type: mongoose.Schema.Types.ObjectId, ref: 'Specialization', required: true },
+
+    schedule: { type: mongoose.Schema.Types.ObjectId, ref: 'Schedule', required: true },
+
     day: {
         type: String,
         required: true,
@@ -19,10 +24,8 @@ const AppointmentSchema = new mongoose.Schema({
         start: { type: String, required: true },  // e.g., '09:00'
         end: { type: String, required: true }     // e.g., '09:30'
     },
-    slotIndex: {
-        type: Number,  // Index of the slot within the schedule
-        required: true
-    },
+
+    
     status: { 
         type: String, 
         enum: ['Scheduled', 'Completed', 'Cancelled'], 
