@@ -56,10 +56,10 @@ const StaffSchema = new Schema({
         type: Boolean,
         default: false,
     },
-    profilePicture: {
-        type: String,
-        default: '',
-    }
+    profilePicture: { 
+        data: Buffer,
+        contentType: String
+    },
 });
 
 const Staff = mongoose.model('Staff', StaffSchema);
