@@ -7,6 +7,7 @@ const Staff = require('../models/Staff');
 const Patient = require('../models/Patient');
 
 
+
 const changePassword = async (req, res) => {
     const { email, newPassword } = req.body;
 
@@ -129,49 +130,231 @@ const changePassword = async (req, res) => {
 };
 
 
-  // Function to upload profile picture
-// Function to upload profile picture
+
 const uploadProfilePicture = async (req, res) => {
     const userId = req.user.userId;
     const file = req.file;
-  
+
     if (!file) {
         return res.status(400).json({ msg: 'No file uploaded' });
     }
-  
+
     try {
         // Identify user based on role
         let user;
         switch (req.user.role) {
-            case 'admin':
+            case 'Admin':
                 user = await Admin.findById(userId);
                 break;
-            case 'doctor':
+            case 'Doctor':
                 user = await Doctor.findById(userId);
                 break;
-            case 'staff':
+            case 'Staff':
                 user = await Staff.findById(userId);
                 break;
-            case 'patient':
+            case 'Patient':
                 user = await Patient.findById(userId);
                 break;
             default:
                 return res.status(400).json({ msg: 'Invalid role' });
         }
-  
+
         if (!user) {
             return res.status(404).json({ msg: 'User not found' });
         }
-  
-        // Update user with profile picture path
-        user.profilePicture = file.path;
+
+        // Store the image as binary data in the user's profile
+        user.profilePicture = {
+            data: file.buffer,
+            contentType: file.mimetype
+        };
+
         await user.save();
-  
-        res.status(200).json({ msg: 'Profile picture uploaded successfully', filePath: file.path });
+
+        res.status(200).json({ msg: 'Profile picture uploaded successfully' });
     } catch (err) {
         res.status(500).json({ msg: 'Server error', error: err.message });
     }
 };
 
 
-module.exports = { changePassword, uploadProfilePicture };
+const viewProfilePicture = async (req, res) => {
+    const userId = req.user.userId;
+
+    try {
+        let user;
+        switch (req.user.role) {
+            case 'Admin':
+                user = await Admin.findById(userId);
+                break;
+            case 'Doctor':
+                user = await Doctor.findById(userId);
+                break;
+            case 'Staff':
+                user = await Staff.findById(userId);
+                break;
+            case 'Patient':
+                user = await Patient.findById(userId);
+                break;
+            default:
+                return res.status(400).json({ msg: 'Invalid role' });
+        }
+
+        if (!user || !user.profilePicture) {
+            return res.status(404).json({ msg: 'Profile picture not found' });
+        }
+
+        // Serve the image as binary data
+        res.set('Content-Type', user.profilePicture.contentType);
+        res.send(user.profilePicture.data);
+    } catch (err) {
+        res.status(500).json({ msg: 'Server error', error: err.message });
+    }
+};
+
+
+const deleteProfilePicture = async (req, res) => {
+    const userId = req.user.userId;
+
+    try {
+        let user;
+        switch (req.user.role) {
+            case 'Admin':
+                user = await Admin.findById(userId);
+                break;
+            case 'Doctor':
+                user = await Doctor.findById(userId);
+                break;
+            case 'Staff':
+                user = await Staff.findById(userId);
+                break;
+            case 'Patient':
+                user = await Patient.findById(userId);
+                break;
+            default:
+                return res.status(400).json({ msg: 'Invalid role' });
+        }
+
+        if (!user) {
+            return res.status(404).json({ msg: 'User not found' });
+        }
+
+        if (!user.profilePicture) {
+            return res.status(404).json({ msg: 'Profile picture not found' });
+        }
+
+        // Remove the profile picture from the user's profile
+        user.profilePicture = undefined;
+
+        await user.save();
+
+        res.status(200).json({ msg: 'Profile picture deleted successfully' });
+    } catch (err) {
+        res.status(500).json({ msg: 'Server error', error: err.message });
+    }
+};
+
+
+
+const uploadMedicalFile = async (req, res) => {
+    const userId = req.user.userId;
+    const file = req.file;
+
+    if (!file) {
+        return res.status(400).json({ msg: 'No file uploaded' });
+    }
+
+    try {
+        // Ensure only patients can upload medical files
+        if (req.user.role !== 'Patient') {
+            return res.status(403).json({ msg: 'Only patients can upload medical files' });
+        }
+
+        // Find the patient
+        const patient = await Patient.findById(userId);
+        if (!patient) {
+            return res.status(404).json({ msg: 'Patient not found' });
+        }
+
+        // Loop through the uploaded files and store them in the patient's record
+        files.forEach(file => {
+            const medicalFile = {
+                fileName: file.originalname,
+                contentType: file.mimetype,
+                data: file.buffer, // Store the binary data
+                uploadDate: new Date(),
+            };
+            patient.medicalFiles.push(medicalFile);
+        });
+
+        await patient.save();
+
+        res.status(200).json({ msg: 'Medical file uploaded successfully' });
+    } catch (err) {
+        res.status(500).json({ msg: 'Server error', error: err.message });
+    }
+};
+
+
+
+// View Medical File (modified to allow different roles to access patient files)
+const viewMedicalFile = async (req, res) => {
+    const userId = req.user.userId;
+    const patientId = req.params.patientId || userId; // Patient or Admin/Doctor can pass a patientId
+
+    try {
+        // Ensure that only the patient, doctor, admin, or staff can access the files
+        if (req.user.role === 'Patient' && userId !== patientId) {
+            return res.status(403).json({ msg: 'You can only view your own medical files' });
+        }
+
+        const patient = await Patient.findById(patientId);
+        if (!patient || !patient.medicalFiles || patient.medicalFiles.length === 0) {
+            return res.status(404).json({ msg: 'No medical files found' });
+        }
+
+        // Return the list of file metadata (not the actual file data)
+        const fileList = patient.medicalFiles.map((file, index) => ({
+            index, // File index in the array
+            fileName: file.fileName,
+            uploadDate: file.uploadDate,
+            contentType: file.contentType,
+        }));
+
+        res.status(200).json(fileList);
+    } catch (err) {
+        res.status(500).json({ msg: 'Server error', error: err.message });
+    }
+};
+
+// Delete Medical File (modified to allow only patients to delete their own files)
+
+const deleteMedicalFile = async (req, res) => {
+    const fileIndex = parseInt(req.params.fileIndex, 10); // Ensure fileIndex is an integer
+    const userId = req.user.userId; // Extract patient ID from token (userId)
+
+    try {
+        // Only the patient themselves can delete files
+        if (req.user.role !== 'Patient') {
+            return res.status(403).json({ msg: 'You can only delete your own medical files' });
+        }
+
+        // Find the patient using the userId from the token
+        const patient = await Patient.findById(userId);
+        if (!patient || !patient.medicalFiles || !patient.medicalFiles[fileIndex]) {
+            return res.status(404).json({ msg: 'Medical file not found' });
+        }
+
+        // Remove the file from the medicalFiles array
+        patient.medicalFiles.splice(fileIndex, 1);
+        await patient.save();
+
+        res.status(200).json({ msg: 'Medical file deleted successfully' });
+    } catch (err) {
+        res.status(500).json({ msg: 'Server error', error: err.message });
+    }
+};
+
+
+
+module.exports = { changePassword, uploadProfilePicture, viewProfilePicture, deleteProfilePicture, uploadMedicalFile, viewMedicalFile, deleteMedicalFile };
