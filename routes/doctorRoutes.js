@@ -2,7 +2,7 @@
 const express = require('express');
 const router = express.Router();
 const Invitation  = require('../models/Invitation');
-const { registerDoctor} = require('../controllers/doctorController');
+const { registerDoctor, appointmentHistory, treatmentPlan } = require('../controllers/doctorController');
 const { authMiddleware, roleCheck } = require('../middleware/authMiddleware');
 
 
@@ -23,7 +23,10 @@ router.get('/register/:token', async (req, res) => {
     }
 });
 
-
 router.post('/register/:token', registerDoctor);
+
+router.get('/appointments/:patientId', authMiddleware, roleCheck(['view_appointments']),appointmentHistory)
+
+router.post('/treatment-plan/:appointmentId', authMiddleware,treatmentPlan)
 
 module.exports = router;
