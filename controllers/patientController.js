@@ -24,8 +24,7 @@ const registerPatient = async (req, res) => {
     emergencyRelationship, 
     username, 
     password, 
-    confirmPassword, 
-    medicalFiles 
+    confirmPassword 
   } = req.body;
 
   try {
@@ -46,6 +45,19 @@ const registerPatient = async (req, res) => {
         msg: 'Passwords do not match' 
       });
     }
+
+    // Prepare the medicalFiles array
+    let medicalFiles = [];
+    if (req.files && req.files.length > 0) {
+      medicalFiles = req.files.map(file => ({
+        fileName: file.originalname,
+        contentType: file.mimetype,
+        data: file.buffer, // Store file data as Buffer
+        uploadDate: Date.now(),
+      }));
+    }
+    console.log(req.file);
+
 
     // Create a new patient object with the additional fields
     patient = new Patient({
@@ -68,7 +80,7 @@ const registerPatient = async (req, res) => {
       emergencyRelationship,
       username,
       password,
-      medicalFiles,
+      medicalFiles, // Add the uploaded medical files here
       role: 'patient',
       isVerified: false,
     });
@@ -110,6 +122,8 @@ const registerPatient = async (req, res) => {
     });
   }
 };
+
+
 
 // Route to handle email verification
 const verify = async (req, res) => {
