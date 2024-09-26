@@ -32,15 +32,15 @@ router.put('/change-email/:userId', authMiddleware, roleCheck(['change_user_emai
 // Single endpoint to manage all CRUD operations on specializations
 router.route('/specializations/:id')
     .all(authMiddleware)
-    .delete(roleCheck(['delete_specialization']), manageSpecializations); // Delete
+    .delete(roleCheck(['delete_specialization']), manageSpecializations)
+    .put(roleCheck(['update_specialization']), manageSpecializations); 
 
 
 router.route('/specializations')
     .all(authMiddleware)
     .post(roleCheck(['create_specialization']), manageSpecializations) // Create
     .get(roleCheck(['read_specialization']), manageSpecializations)
-    .put(roleCheck(['update_specialization']), manageSpecializations);  // Update    // Read
-
+    
 
 
 
