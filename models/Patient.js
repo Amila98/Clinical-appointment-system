@@ -81,13 +81,9 @@ const PatientSchema = new mongoose.Schema({
     type: String,
     required: true,
   },
-  medicalFiles: {
-    type: [String], // Assuming these are file paths or URLs
-    required: false,
-  },
   role: {
     type: String,
-    default: 'patient',
+    default: 'Patient',
   },
   isVerified: {
     type: Boolean,
@@ -101,8 +97,17 @@ const PatientSchema = new mongoose.Schema({
     default: false
   },
   profilePicture: { 
-    type: String, default: '' 
-  }
+    data: Buffer,
+    contentType: String
+  },
+  medicalFiles: [
+    {
+      fileName: String,
+      contentType: String,
+      data: Buffer,
+      uploadDate: { type: Date, default: Date.now }
+    }
+  ]
 });
 
 // Method to compare hashed passwords
