@@ -18,6 +18,10 @@ const pendingDoctorSchema = new mongoose.Schema({
     professionalInfo: {
         type: String
     },
+    isVerified: {
+        type: Boolean,
+        default: false  
+    },
     specializations: [{
         specializationId: {
             type: mongoose.Schema.Types.ObjectId,
@@ -42,13 +46,20 @@ const pendingDoctorSchema = new mongoose.Schema({
                 default: 15, // You can set a default value for appointment time limit
                 required: true // Mark it as required if you expect it to always be provided
             },
-            maxAppointments: {
-                type: Number // You can calculate and store the maximum number of appointments based on the time limit
-            },
-            appointmentCount: {
-                type: Number,
-                default: 0 // Default to 0 for a new doctor
-            }
+            slots: [{
+                start: {
+                    type: String,
+                    required: true
+                },
+                end: {
+                    type: String,
+                    required: true
+                },
+                isAvailable: {
+                    type: Boolean,
+                    default: true
+                }
+            }]
         }]
     }],
     dateRegistered: {
