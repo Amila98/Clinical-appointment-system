@@ -29,8 +29,9 @@ const adminSchema = new mongoose.Schema({
         required: true
     },
     profilePicture: { 
-        type: String 
-    }
+        data: Buffer,
+        contentType: String
+    },
 });
 
 const Admin = mongoose.model('Admin', adminSchema);
