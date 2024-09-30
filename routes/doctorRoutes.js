@@ -2,8 +2,9 @@
 const express = require('express');
 const router = express.Router();
 const Invitation  = require('../models/Invitation');
-const { registerDoctor, appointmentHistory, treatmentPlan } = require('../controllers/doctorController');
+const { registerDoctor, appointmentHistory, treatmentPlan, updateTreatment, createArticle, getMyArticles, updateArticle,  deleteArticle } = require('../controllers/doctorController');
 const { authMiddleware, roleCheck } = require('../middleware/authMiddleware');
+const { uploadImageMiddleware } = require('../middleware/uploadMiddleware');
 
 
 // Route to validate the token (without sending the email back)
@@ -28,5 +29,15 @@ router.post('/register/:token', registerDoctor);
 router.get('/appointments/:patientId', authMiddleware, roleCheck(['view_appointments']),appointmentHistory)
 
 router.post('/treatment-plan/:appointmentId', authMiddleware,treatmentPlan)
+
+router.put('/update-treatment-plan/:appointmentHistoryId', authMiddleware,updateTreatment)
+
+router.post('/create-article',uploadImageMiddleware, authMiddleware, createArticle)
+
+router.get('/my-articles', authMiddleware, getMyArticles)
+
+router.put('/update-article/:articleId',uploadImageMiddleware, authMiddleware, updateArticle)
+
+router.delete('/delete-article/:articleId', authMiddleware, deleteArticle)
 
 module.exports = router;
