@@ -16,7 +16,7 @@ const uploadImageMiddleware = multer({
             cb(new Error('Only image files are allowed!'));
         }
     },
-}).single('profilePicture');
+}).single('profilePicture, featuredImage');
 
 
 // Configure Multer to store the file in memory
