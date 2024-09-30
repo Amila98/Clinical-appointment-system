@@ -5,7 +5,9 @@ const Doctor = require('../models/Doctor');
 const Appointment = require('../models/Appointment');
 const { uploadImageMiddleware } = require('../middleware/uploadMiddleware');
 const { authMiddleware, roleCheck } = require('../middleware/authMiddleware');
-const { loginUser,viewUserDetails,updatePersonalDetails, createUser, getUserById, updateUser, deleteUser, changeOwnPassword,getDoctorsBySpecialization,getAvailableDaysForDoctor, getPatients, getAvailableSlotsForDoctor, placeAppointment, manageSchedules, manageBreaks } = require('../controllers/userController');
+const { loginUser,viewUserDetails,updatePersonalDetails, createUser, getUserById, updateUser, deleteUser, changeOwnPassword,
+    getDoctorsBySpecialization,getAvailableDaysForDoctor, getPatients, getAvailableSlotsForDoctor, placeAppointment, manageSchedules, 
+    manageBreaks,updateAppointment, deleteAppointment,getAppointments } = require('../controllers/userController');
 
 const router = express.Router();
 
@@ -36,6 +38,12 @@ router.get('/available-slots-doctor', authMiddleware, roleCheck(['view_doctor_sl
 router.get('/available-days-doctor', authMiddleware, roleCheck(['view_doctor_available_days']), getAvailableDaysForDoctor);
 
 router.post('/place-appointment',authMiddleware, roleCheck(['place_appointment']), placeAppointment);
+
+router.put('/update-appointment',authMiddleware, updateAppointment);
+
+router.get('/appointments',authMiddleware, getAppointments);
+
+router.delete('/delete-appointment/:appointmentId',authMiddleware, deleteAppointment);
 
 // Route to get all specializations
 router.get('/all-specializations', async (req, res) => {
