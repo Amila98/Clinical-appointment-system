@@ -21,8 +21,7 @@ const AppointmentSchema = new mongoose.Schema({
         required: true,
     },
     timeSlot: {
-        start: { type: String, required: true },  // e.g., '09:00'
-        end: { type: String, required: true }     // e.g., '09:30'
+        id: { type: mongoose.Schema.Types.ObjectId, required: true }
     },
 
     
