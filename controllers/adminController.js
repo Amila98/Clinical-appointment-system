@@ -277,6 +277,7 @@ const manageSpecializations = async (req, res) => {
                 return res.status(200).json(specializations);
             }
             case 'PUT': { // Update an existing specialization
+                const { id } = req.params; // Get the ID from the URL parameters
                 const { name, description } = req.body;
 
                 const specialization = await Specialization.findById(id);
