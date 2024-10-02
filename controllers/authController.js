@@ -133,10 +133,10 @@ const changePassword = async (req, res) => {
 
 const uploadProfilePicture = async (req, res) => {
     const userId = req.user.userId;
-    const file = req.file;
+    const file = req.files.profilePicture ? req.files.profilePicture[0] : null; // Accessing the uploaded file
 
     if (!file) {
-        return res.status(400).json({ msg: 'No file uploaded' });
+        return res.status(400).json({ msg: 'No profile picture uploaded' });
     }
 
     try {
@@ -258,10 +258,10 @@ const deleteProfilePicture = async (req, res) => {
 
 const uploadMedicalFile = async (req, res) => {
     const userId = req.user.userId;
-    const file = req.file;
+    const file = req.files.medicalFile ? req.files.medicalFile[0] : null; // Accessing the uploaded file
 
     if (!file) {
-        return res.status(400).json({ msg: 'No file uploaded' });
+        return res.status(400).json({ msg: 'No medical file uploaded' });
     }
 
     try {
@@ -276,17 +276,15 @@ const uploadMedicalFile = async (req, res) => {
             return res.status(404).json({ msg: 'Patient not found' });
         }
 
-        // Loop through the uploaded files and store them in the patient's record
-        files.forEach(file => {
-            const medicalFile = {
-                fileName: file.originalname,
-                contentType: file.mimetype,
-                data: file.buffer, // Store the binary data
-                uploadDate: new Date(),
-            };
-            patient.medicalFiles.push(medicalFile);
-        });
+        // Store the medical file in the patient's record
+        const medicalFile = {
+            fileName: file.originalname,
+            contentType: file.mimetype,
+            data: file.buffer, // Store the binary data
+            uploadDate: new Date(),
+        };
 
+        patient.medicalFiles.push(medicalFile);
         await patient.save();
 
         res.status(200).json({ msg: 'Medical file uploaded successfully' });
@@ -294,6 +292,7 @@ const uploadMedicalFile = async (req, res) => {
         res.status(500).json({ msg: 'Server error', error: err.message });
     }
 };
+
 
 
 
