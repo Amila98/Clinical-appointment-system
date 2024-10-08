@@ -7,10 +7,12 @@ const Admin = require('../models/Admin');
 const Doctor = require('../models/Doctor');
 const Staff = require('../models/Staff');
 const Patient = require('../models/Patient');
+const Permission = require('../models/Permission');
 const Specialization = require('../models/Specialization');
 const Appointment = require('../models/Appointment');
 const PendingDoctor = require('../models/PendingDoctor');
 const Invitation = require('../models/Invitation');
+const Settings = require('../models/Settings');
 
 
 // Function to send an invitation email to a doctor
@@ -312,7 +314,224 @@ const manageSpecializations = async (req, res) => {
 };
 
 
+const createOrUpdateSettings = async (req, res) => {
+    try {
+      const { 
+        applicationName, 
+        companyName, 
+        hospitalEmail, 
+        hospitalPhone, 
+        hospitalStartDay, 
+        hospitalStartTime, 
+        hospitalAddress, 
+        countryCode, 
+        defaultLanguage, 
+        aboutUs, 
+        socialDetails 
+      } = req.body;
+  
+      // Check if settings already exist (only one settings document should exist)
+      let settings = await Settings.findOne();
+      
+      if (!settings) {
+        // Create new settings
+        settings = new Settings({
+          applicationName, 
+          companyName, 
+          hospitalEmail, 
+          hospitalPhone, 
+          hospitalStartDay, 
+          hospitalStartTime, 
+          hospitalAddress, 
+          countryCode, 
+          defaultLanguage, 
+          aboutUs, 
+          socialDetails
+        });
+      } else {
+        // Update existing settings
+        settings.applicationName = applicationName;
+        settings.companyName = companyName;
+        settings.hospitalEmail = hospitalEmail;
+        settings.hospitalPhone = hospitalPhone;
+        settings.hospitalStartDay = hospitalStartDay;
+        settings.hospitalStartTime = hospitalStartTime;
+        settings.hospitalAddress = hospitalAddress;
+        settings.countryCode = countryCode;
+        settings.defaultLanguage = defaultLanguage;
+        settings.aboutUs = aboutUs;
+        settings.socialDetails = socialDetails;
+      }
+  
+      await settings.save();
+      res.status(200).json({ message: 'Settings saved successfully', settings });
+    } catch (error) {
+      res.status(500).json({ error: 'Error saving settings' });
+    }
+  };
+  
+  const getSettings = async (req, res) => {
+    try {
+      const settings = await Settings.findOne(); // Retrieve the only settings document
+      if (!settings) {
+        return res.status(404).json({ error: 'Settings not found' });
+      }
+      res.status(200).json(settings);
+    } catch (error) {
+      res.status(500).json({ error: 'Error fetching settings' });
+    }
+  };
+
+
+const uploadApplicationLogo = async (req, res) => {
+  const file = req.files.applicationLogo ? req.files.applicationLogo[0] : null; // Accessing the uploaded file
+
+    if (!file) {
+        return res.status(400).json({ msg: 'No logo file uploaded' });
+    }
+
+    try {
+        let settings = await Settings.findOne();
+        if (!settings) {
+            return res.status(404).json({ error: 'Settings not found' });
+        }
+
+        // Save logo in the settings
+        settings.applicationLogo = {
+            data: file.buffer,
+            contentType: file.mimetype
+        };
+
+        await settings.save();
+        res.status(200).json({ msg: 'Logo uploaded successfully' });
+    } catch (err) {
+        res.status(500).json({ msg: 'Server error', error: err.message });
+    }
+};
 
   
-module.exports = { sendDoctorInvitation, verifyDoctor, createStaffMember, 
- changeUserEmail, manageSpecializations };
+const uploadFavicon = async (req, res) => {
+  const file = req.files.favicon ? req.files.favicon[0] : null; // Accessing the uploaded file
+
+  if (!file) {
+      return res.status(400).json({ msg: 'No favicon file uploaded' });
+  }
+
+  try {
+      let settings = await Settings.findOne();
+      if (!settings) {
+          return res.status(404).json({ error: 'Settings not found' });
+      }
+
+      // Save favicon in the settings
+      settings.favicon = {
+          data: file.buffer,
+          contentType: file.mimetype
+      };
+
+      await settings.save();
+      res.status(200).json({ msg: 'Favicon uploaded successfully' });
+  } catch (err) {
+      res.status(500).json({ msg: 'Server error', error: err.message });
+  }
+};
+
+// Generalized CRUD function for Permission management
+const managePermissions = async (req, res) => {
+    const { role } = req.params; // Role in the URL for PUT and DELETE
+    const { permissions } = req.body; // Permissions passed in the request body (for selective permission deletion)
+
+    try {
+        switch (req.method) {
+            // Create or assign new role with permissions (POST)
+            case 'POST': {
+                // Check if the role already exists
+                let existingRole = await Permission.findOne({ role });
+                if (existingRole) {
+                    return res.status(400).json({ msg: 'Role already exists. Use PUT to update permissions.' });
+                }
+
+                // Create a new role with permissions
+                const newPermission = new Permission({ role, permissions });
+                await newPermission.save();
+                return res.status(201).json({ msg: 'Role and permissions created successfully', newPermission });
+            }
+
+            // Get all roles and permissions or a specific role's permissions (GET)
+            case 'GET': {
+                if (role) {
+                    const permissionDoc = await Permission.findOne({ role });
+                    if (!permissionDoc) {
+                        return res.status(404).json({ msg: 'Permissions not found for this role' });
+                    }
+                    return res.json(permissionDoc);
+                } else {
+                    const permissions = await Permission.find();
+                    return res.json(permissions);
+                }
+            }
+
+            // Add new permissions to an existing role without replacing existing permissions (PUT)
+            case 'PUT': {
+                // Find the role and update the permissions
+                let permissionDoc = await Permission.findOne({ role });
+
+                if (!permissionDoc) {
+                    return res.status(404).json({ msg: 'Role not found. Use POST to create a new role.' });
+                }
+
+                // Loop over new permissions and add them if they don't exist, or update existing ones
+                Object.keys(permissions).forEach(permission => {
+                    permissionDoc.permissions.set(permission, permissions[permission]);
+                });
+
+                await permissionDoc.save();
+
+                return res.json({ msg: 'New permissions added successfully', permissionDoc });
+            }
+
+
+            // Delete a role or specific permissions (DELETE)
+            case 'DELETE': {
+                const permissionDoc = await Permission.findOne({ role });
+
+                if (!permissionDoc) {
+                    return res.status(404).json({ msg: 'Role not found' });
+                }
+
+                // Check if specific permissions are provided in the request body
+                if (permissions && Object.keys(permissions).length > 0) {
+                    // Selective permission deletion
+                    Object.keys(permissions).forEach(permissionName => {
+                        // Remove only the specified permissions if they exist
+                        if (permissionDoc.permissions.has(permissionName)) {
+                            permissionDoc.permissions.delete(permissionName);
+                        }
+                    });
+
+                    // Save the updated permission document
+                    await permissionDoc.save();
+
+                    return res.json({ msg: 'Selected permissions deleted successfully', permissionDoc });
+                } else {
+                    // If no specific permissions are provided, delete the entire role
+                    await Permission.findOneAndDelete({ role });
+
+                    return res.json({ msg: 'Role and all permissions deleted successfully' });
+                }
+            }
+                default:
+                    return res.status(405).json({ msg: 'Method not allowed' });
+            }
+    } catch (err) {
+        console.error('Server error:', err.message);
+        res.status(500).json({ msg: 'Server error', error: err.message });
+    }
+};
+
+  
+
+
+  
+module.exports = { sendDoctorInvitation, verifyDoctor, createStaffMember, manageSpecializations, managePermissions,
+    createOrUpdateSettings, getSettings, uploadApplicationLogo, uploadFavicon, changeUserEmail };
