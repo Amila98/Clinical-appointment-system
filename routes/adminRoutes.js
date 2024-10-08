@@ -2,8 +2,9 @@
 const express = require('express');
 const router = express.Router();
 const PendingDoctor  = require('../models/PendingDoctor');
-const { createStaffMember,sendDoctorInvitation, verifyDoctor, changeUserEmail, manageSpecializations } = require('../controllers/adminController');
+const { createStaffMember,sendDoctorInvitation, verifyDoctor, changeUserEmail, manageSpecializations,managePermissions, createOrUpdateSettings, getSettings, uploadApplicationLogo, uploadFavicon } = require('../controllers/adminController');
 const { authMiddleware, roleCheck } = require('../middleware/authMiddleware');
+const { uploadImageMiddleware } = require('../middleware/uploadMiddleware');
 
 
 // Route to get a list of pending doctors
@@ -40,7 +41,20 @@ router.route('/specializations')
     .all(authMiddleware)
     .post(roleCheck(['create_specialization']), manageSpecializations) // Create
     .get(roleCheck(['read_specialization']), manageSpecializations)
-    
+
+
+
+router.post('/settings',authMiddleware, createOrUpdateSettings); // Create or Update Settings
+router.get('/settings',authMiddleware, getSettings);             // Retrieve Settings
+router.post('/settings/logo',authMiddleware, uploadImageMiddleware, uploadApplicationLogo); // Upload logo
+router.post('/settings/favicon',authMiddleware, uploadImageMiddleware, uploadFavicon); // Upload favicon   
+
+
+// For all operations, use the same controller with appropriate method
+router.post('/permissions/:role', authMiddleware, roleCheck(['assignPermissions']), managePermissions); // Create
+router.get('/permissions/:role?', authMiddleware, roleCheck(['viewPermissions']), managePermissions); // Read by role
+router.put('/permissions/:role', authMiddleware, roleCheck(['updatePermissions']), managePermissions); // Update
+router.delete('/permissions/:role', authMiddleware, roleCheck(['deletePermissions']), managePermissions); // Delete
 
 
 
