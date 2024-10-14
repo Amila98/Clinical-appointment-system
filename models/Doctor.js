@@ -63,6 +63,8 @@ const DoctorSchema = new mongoose.Schema({
       }],
     }],
   }],
+  advanceFee: { type: Number, required: true },  // The advance payment amount
+  fullFee: { type: Number, required: true },      // The full payment amount
   profilePicture: { 
     data: Buffer,
     contentType: String
