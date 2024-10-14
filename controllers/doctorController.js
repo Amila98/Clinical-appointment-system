@@ -1,18 +1,18 @@
 // controllers/doctorController.js
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const mongoose = require('mongoose');
 const sendEmail = require('../utils/sendEmail');
-const Patient = require('../models/Patient');
 const Doctor = require('../models/Doctor');
+const Patient = require('../models/Patient');
 const Specialization = require('../models/Specialization');
 const PendingDoctor = require('../models/PendingDoctor');
 const Invitation = require('../models/Invitation');
 const Appointment = require('../models/Appointment');
+const Break = require('../models/Break');
 const AppointmentHistory = require('../models/AppointmentHistory');
 const cron = require('node-cron');
 const Article = require('../models/Article');
-const db = require('../config/db');
-const { tr } = require('date-fns/locale');
 
 const registerDoctor = async (req, res) => {
     const { name, password, professionalInfo, specializations } = req.body;
@@ -183,27 +183,62 @@ const updateDoctorDetails = async (req, res) => {
 // Fetch appointment history for a specific patient
 const appointmentHistory = async (req, res) => {
   try {
-    const patientId = req.params.patientId;
+    const { patientId, appointmentId } = req.params; // Extract patientId and appointmentId from request parameters
 
-    // Find appointments by patient field
-    const appointments = await Appointment.find({ patient: patientId }) // Change to patient
-        .populate('doctor', 'name')  // Change to doctor
-        .populate('specialization', 'name') // Change to specialization
-        .select('day timeSlot status') // Adjust fields as necessary
-        .exec();
+    // Clean the patientId
+    const cleanedPatientId = patientId.replace(/^:*/, '');
 
-    // Check if appointments exist
-    if (!appointments.length) {
-        return res.status(404).json({ message: 'No appointments found for this patient.' });
+    // Validate patientId
+    if (!mongoose.Types.ObjectId.isValid(cleanedPatientId)) {
+      return res.status(400).json({ message: 'Invalid patient ID.' });
     }
 
-    // Return appointments
-    res.status(200).json(appointments);
+    // Validate appointmentId if provided
+    if (appointmentId && !mongoose.Types.ObjectId.isValid(appointmentId)) {
+      return res.status(400).json({ message: 'Invalid appointment ID.' });
+    }
+
+    // Fetch all appointment histories for the patient
+    const appointmentHistoryRecords = await AppointmentHistory.find({ patient: cleanedPatientId })
+      .populate('patient', 'name')
+      .populate('doctor', 'name')
+      .populate('specialization', 'name')
+      .select('day timeSlot status treatmentPlan prescription')
+      .exec();
+
+    // Check if appointment history exists
+    if (!appointmentHistoryRecords.length) {
+      return res.status(404).json({ message: 'No appointment history found for this patient.' });
+    }
+
+    // If appointmentId is provided, fetch the appointment details
+    let appointmentDetails = null;
+    if (appointmentId) {
+      appointmentDetails = await Appointment.findById(appointmentId)
+        .populate('doctor', 'name') // Populate doctor details if needed
+        .populate('patient', 'name') // Populate patient details if needed
+        .populate('specialization', 'name') // Populate specialization details if needed
+        .exec();
+
+      // Check if the appointment exists
+      if (!appointmentDetails) {
+        return res.status(404).json({ message: 'Appointment not found.' });
+      }
+    }
+
+    // Return the patient's appointment history and appointment details (if available)
+    return res.status(200).json({
+      appointmentHistory: appointmentHistoryRecords,
+      appointmentDetails, // This will be null if appointmentId was not provided
+    });
   } catch (error) {
     console.error('Error fetching appointment history:', error);
     res.status(500).json({ message: 'Failed to retrieve appointment history.' });
   }
 };
+
+
+
 
 const treatmentPlan = async (req, res) => {
   const { appointmentId } = req.params;  // Get the appointment ID from URL parameters
@@ -232,11 +267,12 @@ const treatmentPlan = async (req, res) => {
 
       // Create a new history entry in AppointmentHistory with treatment and prescription details
       const historyEntry = new AppointmentHistory({
+          appointment: appointment._id,
           doctor: appointment.doctor._id,
           patient: appointment.patient._id,
           specialization: appointment.specialization._id,
           day: appointment.day,
-          timeSlot: appointment.timeSlot,
+          timeSlot: appointment.timeSlot._id,
           status: 'Completed',
           treatmentPlan: treatmentDetails || [],  // Include treatment plan details if provided
           prescription: prescriptionDetails || [],  // Include prescription details if provided
@@ -254,6 +290,8 @@ const treatmentPlan = async (req, res) => {
       res.status(500).json({ msg: 'Server error', error: error.message });
   }
 };
+
+
 
 const updateTreatment = async (req, res) => {
   const { appointmentHistoryId } = req.params;  // Get the appointment history ID from URL parameters
@@ -292,53 +330,58 @@ const updateTreatment = async (req, res) => {
 
 
 const createArticle = async (req, res) => {
+  const doctorId = req.user.userId; // Assuming the user is a doctor
+  const file = req.files && req.files.featureImage ? req.files.featureImage[0] : null; // Accessing the uploaded feature image
 
-  const doctorId = req.user.userId;  // Assuming the user is a doctor
-  const file = req.file;
+  console.log(file);
 
-    if (!file) {
-        return res.status(400).json({ msg: 'No file uploaded' });
-    }
+  if (!file) {
+      return res.status(400).json({ msg: 'No feature image uploaded' });
+  }
 
-    try {
-        // Find the article by its ID if you're updating, or create a new one
-        const { articleId } = req.params;
+  try {
+      const { articleId } = req.params;
 
-        let article;
-        if (articleId) {
-            article = await Article.findById(articleId);
-            if (!article) {
-                return res.status(404).json({ msg: 'Article not found' });
-            }
-        } else {
-            // If no articleId, create a new article with the required fields
-            const { title, specialization, content, schedule_post } = req.body;
-            article = new Article({
-                title,
-                specialization,
-                content,
-                schedule_post,
-                author: doctorId,  // The author is the logged-in doctor
-                status: schedule_post ? 'Scheduled' : 'Draft'
-            });
-        }
+      let article;
+      if (articleId) {
+          // Update existing article
+          article = await Article.findById(articleId);
+          if (!article) {
+              return res.status(404).json({ msg: 'Article not found' });
+          }
+      } else {
+          // Create new article
+          const { title, specialization, content, schedule_post } = req.body;
+          article = new Article({
+              title,
+              specialization,
+              content,
+              schedule_post,
+              author: doctorId, // The author is the logged-in doctor
+              status: schedule_post ? 'Scheduled' : 'Draft'
+          });
+      }
+      // Store the uploaded feature image as binary data in the article
+      article.featureImage = {
+          data: file.buffer, // Image data in buffer format
+          contentType: file.mimetype // Image type (e.g., image/jpeg)
+      };
 
-        // Store the uploaded feature image as binary data in the article
-        article.featurImage = {
-            data: file.buffer,
-            contentType: file.mimetype
-        };
+      console.log(article.featureImage);
 
-        await article.save();
+      await article.save();
 
-        res.status(200).json({
-            msg: articleId ? 'Feature image updated successfully' : 'Article created with feature image',
-            article
-        });
-    } catch (err) {
-        res.status(500).json({ msg: 'Server error', error: err.message });
-    }
+      res.status(200).json({
+          msg: articleId ? 'Feature image updated successfully' : 'Article created with feature image',
+          article
+      });
+  } catch (err) {
+      res.status(500).json({ msg: 'Server error', error: err.message });
+  }
 };
+
+
+
 
 const getMyArticles = async (req, res) => {
   try {
@@ -356,7 +399,7 @@ const getMyArticles = async (req, res) => {
     switch (req.user.role) {
       case 'Doctor':
         // Doctor: can view only their own articles
-        query.author = req.user._id;
+        query.author = req.user.userId;
         articles = await Article.find(query);
         break;
       
@@ -383,39 +426,38 @@ const getMyArticles = async (req, res) => {
 
 const updateArticle = async (req, res) => {
   try {
-    const { id } = req.params;
-    const { title, specialization_id, content, schedule_post } = req.body;
-    const file = req.file;  // Check for the uploaded feature image
+      const { id } = req.params;
+      const { title, specialization_id, content, schedule_post } = req.body;
+      const file = req.files && req.files.featureImage ? req.files.featureImage[0] : null; // Accessing the uploaded feature image
 
-    // Find the article by its ID
-    const article = await Article.findById(id);
-    if (!article) {
-      return res.status(404).json({ error: 'Article not found' });
-    }
+      // Find the article by its ID
+      const article = await Article.findById(id);
+      if (!article) {
+          return res.status(404).json({ error: 'Article not found' });
+      }
 
-    // Update the article fields
-    article.title = title;
-    article.specialization = specialization_id;
-    article.content = content;
-    article.schedule_post = schedule_post;
-    article.status = schedule_post ? 'Scheduled' : 'Draft';
+      // Update the article fields
+      article.title = title;
+      article.specialization = specialization_id;
+      article.content = content;
+      article.schedule_post = schedule_post;
+      article.status = schedule_post ? 'Scheduled' : 'Draft';
 
-    // If a new feature image was uploaded, update it
-    if (file) {
-      article.featurImage = {
-        data: file.buffer,  // Store image binary data
-        contentType: file.mimetype,  // Store image MIME type
-      };
-    }
+      // If a new feature image was uploaded, update it
+      if (file) {
+          article.featureImage = {
+              data: file.buffer, // Store image binary data
+              contentType: file.mimetype, // Store image MIME type
+          };
+      }
 
-    // Save the updated article
-    await article.save();
-    res.status(200).json({ message: 'Article updated successfully', article });
+      // Save the updated article
+      await article.save();
+      res.status(200).json({ message: 'Article updated successfully', article });
   } catch (error) {
-    res.status(500).json({ error: 'Error updating article', details: error.message });
+      res.status(500).json({ error: 'Error updating article', details: error.message });
   }
 };
-
 
 const deleteArticle = async (req, res) => {
   try {
@@ -441,6 +483,185 @@ const deleteArticle = async (req, res) => {
     res.status(500).json({ error: 'Error deleting article' });
   }
 };
+
+
+
+
+const scheduleFollowUpAppointment = async (req, res) => {
+  const { appointmentId } = req.params; // Get the appointment ID from URL parameters
+  const { day, schedule_id, selectedSlot } = req.body; // Get the day, schedule ID, and selected slot for the new appointment
+
+  const doctorId = req.user.userId; // Get user ID from the token
+  const userRole = req.user.role; // Get user role from the token
+
+  try {
+    if (userRole !== 'Doctor') {
+      return res.status(403).json({ msg: 'Only Doctor can schedule follow-up appointments.' });
+    }
+
+    // Validate appointmentId
+    if (!mongoose.isValidObjectId(appointmentId)) {
+      return res.status(400).json({ msg: 'Invalid appointment ID' });
+    }
+
+    // Find the original appointment based on the provided appointment ID
+    const originalAppointment = await Appointment.findById(appointmentId)
+      .populate('doctor', 'name')
+      .populate('patient', 'name')
+      .populate('specialization', 'name');
+
+    if (!originalAppointment) {
+      return res.status(404).json({ msg: 'Original appointment not found' });
+    }
+
+    // Extract patient and specialization information from the original appointment
+    const patientId = originalAppointment.patient._id;
+    const specializationId = originalAppointment.specialization._id;
+
+    // Create a new ObjectId for schedule ID and selected slot ID
+    const scheduleId = new mongoose.Types.ObjectId(schedule_id);
+    const slotId = selectedSlot.id;
+
+    // Find the doctor based on the doctor ID
+    const doctor = await Doctor.findById(doctorId)
+      .populate('specializations.specializationId', 'name description');
+
+    if (!doctor) {
+      return res.status(404).json({ msg: 'Doctor not found' });
+    }
+
+    const specialization = doctor.specializations.find(spec =>
+      spec.specializationId.equals(specializationId)
+    );
+
+    if (!specialization) {
+      return res.status(400).json({ msg: 'Doctor does not have the required specialization' });
+    }
+
+    const schedule = specialization.schedules.find(sch =>
+      sch._id.equals(scheduleId) && sch.day === day
+    );
+
+    if (!schedule) {
+      return res.status(400).json({ msg: 'Invalid schedule ID or doctor does not work on the selected day.' });
+    }
+
+    const slot = schedule.slots.find(slot =>
+      slot._id.toString() === slotId.toString()
+    );
+
+    if (!slot || !slot.isAvailable) {
+      return res.status(400).json({ msg: 'Selected slot is no longer available.' });
+    }
+
+    // Fetch existing appointments that overlap with the selected slot
+    const overlappingAppointments = await Appointment.find({
+      doctor: doctorId,
+      day,
+      schedule: scheduleId,
+      $and: [
+        { 'timeSlot.end': { $gt: slot.start } },
+        { 'timeSlot.start': { $lt: slot.end } }
+      ]
+    });
+
+    const overlappingBreaks = await Break.find({
+      doctor: doctorId,
+      day,
+      $and: [
+        { endTime: { $gt: slot.start } },
+        { startTime: { $lt: slot.end } }
+      ]
+    });
+
+    if (overlappingAppointments.length > 0 || overlappingBreaks.length > 0) {
+      return res.status(400).json({ msg: 'Selected slot is no longer available due to overlapping appointment or break.' });
+    }
+
+    // Create a new appointment for the follow-up
+    const newAppointment = new Appointment({
+      doctor: doctorId,
+      patient: patientId,
+      day,
+      timeSlot: { id: slotId, start: slot.start, end: slot.end },
+      specialization: specializationId,
+      schedule: scheduleId
+    });
+
+    await newAppointment.save();
+
+    // Update the slot's availability
+    const updateResult = await Doctor.updateOne(
+      { _id: doctorId, 'specializations.schedules._id': scheduleId },
+      {
+        $set: { 'specializations.$.schedules.$[elem].slots.$[slot].isAvailable': false }
+      },
+      {
+        arrayFilters: [
+          { 'elem._id': scheduleId },
+          { 'slot._id': slotId }
+        ]
+      }
+    );
+
+    if (updateResult.modifiedCount === 0) {
+      return res.status(400).json({ msg: 'Failed to update slot availability.' });
+    }
+
+    res.status(201).json({ msg: 'Follow-up appointment scheduled successfully', appointment: newAppointment });
+
+  } catch (error) {
+    console.error('Error scheduling follow-up appointment:', error);
+    res.status(500).json({ msg: 'Server error', error: error.message });
+  }
+};
+
+
+const handleDoctorFees = async (req, res) => {
+  const { doctorId } = req.params;
+  
+  try {
+      // Find the doctor by ID
+      const doctor = await Doctor.findById(doctorId);
+
+      if (!doctor) {
+          return res.status(404).json({ msg: 'Doctor not found' });
+      }
+
+      // Handle GET request (Retrieve Doctor Fees)
+      if (req.method === 'GET') {
+          return res.status(200).json({ advanceFee: doctor.advanceFee, fullFee: doctor.fullFee });
+      }
+
+      // Handle PUT request (Update Doctor Fees)
+      if (req.method === 'PUT') {
+          const { advanceFee, fullFee } = req.body;
+
+          // Ensure only authorized users can update fees
+          const userRole = req.user.role;
+          if (userRole !== 'Admin' && userRole !== 'Doctor') {
+              return res.status(403).json({ msg: 'Unauthorized' });
+          }
+
+          // Update advance and full fees
+          doctor.advanceFee = advanceFee;
+          doctor.fullFee = fullFee;
+
+          await doctor.save();
+          return res.status(200).json({ msg: 'Doctor fees updated successfully', doctor });
+      }
+
+      // If not GET or PUT, return method not allowed
+      return res.status(405).json({ msg: 'Method not allowed' });
+      
+  } catch (error) {
+      console.error('Error handling doctor fees:', error);
+      res.status(500).json({ msg: 'Server error', error: error.message });
+  }
+};
+
+
+
 
 
 
@@ -598,4 +819,4 @@ cron.schedule('0 0 * * *', () => {
 
 
 module.exports = { registerDoctor, updateDoctorDetails,appointmentHistory,treatmentPlan,updateTreatment, 
-  createArticle, getMyArticles, updateArticle,  deleteArticle}; 
+  createArticle, getMyArticles, updateArticle,  deleteArticle, scheduleFollowUpAppointment,handleDoctorFees}; 
