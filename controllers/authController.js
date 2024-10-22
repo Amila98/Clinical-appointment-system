@@ -58,7 +58,13 @@ const changePassword = async (req, res) => {
             res.status(200).json({ msg: 'Password changed successfully' });
         } catch (error) {
             // Return error message if password change fails
-            res.status(400).json({ msg: 'Error changing password', error: error.message });
+            if (error.name === 'TokenExpiredError') {
+                return res.status(401).json({ msg: 'Token has expired' });
+            } else if (error.name === 'JsonWebTokenError') {
+                return res.status(401).json({ msg: 'Invalid token' });
+            } else {
+                return res.status(500).json({ msg: 'Error changing password', error: error.message });
+            }
         }
     } 
     // Handling the forgot password scenario
@@ -132,14 +138,27 @@ const changePassword = async (req, res) => {
 
 
 const uploadProfilePicture = async (req, res) => {
-    const userId = req.user.userId;
-    const file = req.files.profilePicture ? req.files.profilePicture[0] : null; // Accessing the uploaded file
-
-    if (!file) {
-        return res.status(400).json({ msg: 'No profile picture uploaded' });
-    }
-
     try {
+        // Check if user is authenticated
+        if (!req.user) {
+            return res.status(401).json({ msg: 'Unauthorized' });
+        }
+
+        // Extract user ID and uploaded file
+        const userId = req.user.userId;
+        const file = req.files.profilePicture ? req.files.profilePicture[0] : null;
+
+        // Check if file is uploaded
+        if (!file) {
+            return res.status(400).json({ msg: 'No profile picture uploaded' });
+        }
+
+        // Check if file type is valid (e.g., image/jpeg, image/png)
+        const validFileTypes = ['image/jpeg', 'image/png'];
+        if (!validFileTypes.includes(file.mimetype)) {
+            return res.status(400).json({ msg: 'Invalid file type' });
+        }
+
         // Identify user based on role
         let user;
         switch (req.user.role) {
@@ -159,6 +178,7 @@ const uploadProfilePicture = async (req, res) => {
                 return res.status(400).json({ msg: 'Invalid role' });
         }
 
+        // Check if user exists
         if (!user) {
             return res.status(404).json({ msg: 'User not found' });
         }
@@ -169,46 +189,70 @@ const uploadProfilePicture = async (req, res) => {
             contentType: file.mimetype
         };
 
+        // Save the updated user document to the database
         await user.save();
 
         res.status(200).json({ msg: 'Profile picture uploaded successfully' });
     } catch (err) {
-        res.status(500).json({ msg: 'Server error', error: err.message });
+        // Log the error for debugging purposes
+        console.error(err);
+
+        // Return a 500 error with a generic error message
+        res.status(500).json({ msg: 'Server error' });
     }
 };
 
 
 const viewProfilePicture = async (req, res) => {
-    const userId = req.user.userId;
-
     try {
+        const userId = req.user.userId;
+
+        if (!userId) {
+            return res.status(401).json({ msg: 'Unauthorized: User ID not found' });
+        }
+
         let user;
         switch (req.user.role) {
             case 'Admin':
-                user = await Admin.findById(userId);
+                user = await Admin.findById(userId).exec();
                 break;
             case 'Doctor':
-                user = await Doctor.findById(userId);
+                user = await Doctor.findById(userId).exec();
                 break;
             case 'Staff':
-                user = await Staff.findById(userId);
+                user = await Staff.findById(userId).exec();
                 break;
             case 'Patient':
-                user = await Patient.findById(userId);
+                user = await Patient.findById(userId).exec();
                 break;
             default:
                 return res.status(400).json({ msg: 'Invalid role' });
         }
 
-        if (!user || !user.profilePicture) {
+        if (!user) {
+            return res.status(404).json({ msg: 'User not found' });
+        }
+
+        if (!user.profilePicture) {
             return res.status(404).json({ msg: 'Profile picture not found' });
         }
 
         // Serve the image as binary data
+        if (!user.profilePicture.contentType || !user.profilePicture.data) {
+            return res.status(500).json({ msg: 'Invalid profile picture data' });
+        }
+
         res.set('Content-Type', user.profilePicture.contentType);
         res.send(user.profilePicture.data);
     } catch (err) {
-        res.status(500).json({ msg: 'Server error', error: err.message });
+        console.error(err);
+        if (err.name === 'CastError') {
+            return res.status(400).json({ msg: 'Invalid user ID' });
+        } else if (err.name === 'TypeError') {
+            return res.status(500).json({ msg: 'Internal server error' });
+        } else {
+            return res.status(500).json({ msg: 'Server error', error: err.message });
+        }
     }
 };
 
@@ -250,6 +294,7 @@ const deleteProfilePicture = async (req, res) => {
 
         res.status(200).json({ msg: 'Profile picture deleted successfully' });
     } catch (err) {
+        console.error(err);
         res.status(500).json({ msg: 'Server error', error: err.message });
     }
 };
@@ -271,7 +316,9 @@ const uploadMedicalFile = async (req, res) => {
         }
 
         // Find the patient
-        const patient = await Patient.findById(userId);
+        const patient = await Patient.findById(userId)
+            .populate('medicalFiles')
+            .exec();
         if (!patient) {
             return res.status(404).json({ msg: 'Patient not found' });
         }
@@ -289,10 +336,10 @@ const uploadMedicalFile = async (req, res) => {
 
         res.status(200).json({ msg: 'Medical file uploaded successfully' });
     } catch (err) {
+        console.error('Error uploading medical file:', err);
         res.status(500).json({ msg: 'Server error', error: err.message });
     }
 };
-
 
 
 
@@ -326,13 +373,20 @@ const viewMedicalFile = async (req, res) => {
     }
 };
 
+
 // Delete Medical File (modified to allow only patients to delete their own files)
-
 const deleteMedicalFile = async (req, res) => {
-    const fileIndex = parseInt(req.params.fileIndex, 10); // Ensure fileIndex is an integer
-    const userId = req.user.userId; // Extract patient ID from token (userId)
-
     try {
+        const fileIndex = parseInt(req.params.fileIndex, 10); // Ensure fileIndex is an integer
+        if (isNaN(fileIndex) || fileIndex < 0) {
+            return res.status(400).json({ msg: 'Invalid file index' });
+        }
+
+        const userId = req.user.userId; // Extract patient ID from token (userId)
+        if (!userId) {
+            return res.status(401).json({ msg: 'Unauthorized: User ID not found in token' });
+        }
+
         // Only the patient themselves can delete files
         if (req.user.role !== 'Patient') {
             return res.status(403).json({ msg: 'You can only delete your own medical files' });
@@ -340,7 +394,11 @@ const deleteMedicalFile = async (req, res) => {
 
         // Find the patient using the userId from the token
         const patient = await Patient.findById(userId);
-        if (!patient || !patient.medicalFiles || !patient.medicalFiles[fileIndex]) {
+        if (!patient) {
+            return res.status(404).json({ msg: 'Patient not found' });
+        }
+
+        if (!patient.medicalFiles || !patient.medicalFiles[fileIndex]) {
             return res.status(404).json({ msg: 'Medical file not found' });
         }
 
@@ -350,7 +408,14 @@ const deleteMedicalFile = async (req, res) => {
 
         res.status(200).json({ msg: 'Medical file deleted successfully' });
     } catch (err) {
-        res.status(500).json({ msg: 'Server error', error: err.message });
+        console.error(err);
+        if (err.name === 'CastError' || err.name === 'ValidationError') {
+            return res.status(400).json({ msg: 'Invalid request data', error: err.message });
+        } else if (err.name === 'MongoError') {
+            return res.status(500).json({ msg: 'Database error', error: err.message });
+        } else {
+            return res.status(500).json({ msg: 'Server error', error: err.message });
+        }
     }
 };
 
