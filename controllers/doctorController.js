@@ -15,111 +15,129 @@ const cron = require('node-cron');
 const Article = require('../models/Article');
 
 const registerDoctor = async (req, res) => {
-    const { name, password, professionalInfo, specializations } = req.body;
-    const { token } = req.params;
+  try {
+      const { name, password, professionalInfo, specializations } = req.body;
+      const { token } = req.params;
 
-    try {
-        // Find the invitation with the given token
-        const invitation = await Invitation.findOne({ invitationToken: token });
+      // Find the invitation with the given token
+      const invitation = await Invitation.findOne({ invitationToken: token });
 
-        if (!invitation || invitation.isInvitationUsed) {
-            return res.status(400).json({ msg: 'Invalid or expired token.' });
-        }
+      if (!invitation || invitation.isInvitationUsed) {
+          return res.status(400).json({ msg: 'Invalid or expired token.' });
+      }
 
-        // Check if the invitation has expired (24-hour expiry check)
-        if (invitation.expiresAt < new Date()) {
-            return res.status(400).json({ msg: 'Invitation token has expired.' });
-        }
+      // Check if the invitation has expired (24-hour expiry check)
+      if (invitation.expiresAt < new Date()) {
+          return res.status(400).json({ msg: 'Invitation token has expired.' });
+      }
 
-        // Hash the doctor's password
-        const salt = await bcrypt.genSalt(10);
-        const hashedPassword = await bcrypt.hash(password, salt);
+      // Hash the doctor's password
+      const salt = await bcrypt.genSalt(10);
+      const hashedPassword = await bcrypt.hash(password, salt);
 
-        // Prepare the specializations array
-        let specializationsWithSchedules = [];
+      // Prepare the specializations array
+      let specializationsWithSchedules = [];
 
-        if (specializations && specializations.length > 0) {
-            specializationsWithSchedules = await Promise.all(specializations.map(async (spec) => {
-                const { specializationId, schedules } = spec;
+      if (specializations && specializations.length > 0) {
+          specializationsWithSchedules = await Promise.all(specializations.map(async (spec) => {
+              try {
+                  const { specializationId, schedules } = spec;
 
-                // Check if the specialization exists
-                const specialization = await Specialization.findById(specializationId);
-                if (!specialization) {
-                    throw new Error(`Specialization not found with ID: ${specializationId}`);
-                }
+                  // Check if the specialization exists
+                  const specialization = await Specialization.findById(specializationId);
+                  if (!specialization) {
+                      throw new Error(`Specialization not found with ID: ${specializationId}`);
+                  }
 
-                // Prepare schedules and divide time into slots
-                const createdSchedules = schedules.map(sched => {
-                    const { day, startTime, endTime, appointmentTimeLimit } = sched;
-                    const appointmentLimit = appointmentTimeLimit;
+                  // Prepare schedules and divide time into slots
+                  const createdSchedules = schedules.map(sched => {
+                      const { day, startTime, endTime, appointmentTimeLimit } = sched;
+                      const appointmentLimit = appointmentTimeLimit;
 
-                    // Convert start and end time to Date objects
-                    const start = new Date(`1970-01-01T${startTime}:00Z`);
-                    const end = new Date(`1970-01-01T${endTime}:00Z`);
+                      // Convert start and end time to Date objects
+                      const start = new Date(`1970-01-01T${startTime}:00Z`);
+                      const end = new Date(`1970-01-01T${endTime}:00Z`);
 
-                    // Calculate total time and number of slots
-                    const totalMinutes = (end - start) / (1000 * 60);
-                    const numSlots = Math.floor(totalMinutes / appointmentLimit);
+                      // Calculate total time and number of slots
+                      const totalMinutes = (end - start) / (1000 * 60);
+                      const numSlots = Math.floor(totalMinutes / appointmentLimit);
 
-                    let appointmentSlots = [];
-                    for (let i = 0; i < numSlots; i++) {
-                        let slotStart = new Date(start.getTime() + i * appointmentLimit * 60000);
-                        let slotEnd = new Date(slotStart.getTime() + appointmentLimit * 60000);
+                      let appointmentSlots = [];
+                      for (let i = 0; i < numSlots; i++) {
+                          let slotStart = new Date(start.getTime() + i * appointmentLimit * 60000);
+                          let slotEnd = new Date(slotStart.getTime() + appointmentLimit * 60000);
 
-                        appointmentSlots.push({
-                            startTime: slotStart.toISOString().substring(11, 16),
-                            endTime: slotEnd.toISOString().substring(11, 16),
-                        });
-                    }
+                          appointmentSlots.push({
+                              startTime: slotStart.toISOString().substring(11, 16),
+                              endTime: slotEnd.toISOString().substring(11, 16),
+                          });
+                      }
 
-                    return {
-                        day,
-                        startTime,
-                        endTime,
-                        appointmentTimeLimit: appointmentLimit,
-                        appointmentSlots: appointmentSlots // This stores the generated slots
-                    };
-                });
+                      return {
+                          day,
+                          startTime,
+                          endTime,
+                          appointmentTimeLimit: appointmentLimit,
+                          appointmentSlots: appointmentSlots // This stores the generated slots
+                      };
+                  });
 
-                return {
-                    specializationId,
-                    schedules: createdSchedules
-                };
-            }));
-        }
+                  return {
+                      specializationId,
+                      schedules: createdSchedules
+                  };
+              } catch (error) {
+                  throw new Error(`Error processing specialization: ${error.message}`);
+              }
+          }));
+      }
 
-        // Create a new pending doctor with the given information
-        const pendingDoctor = new PendingDoctor({
-            name,
-            email: invitation.email, // Use the email from the invitation
-            password: hashedPassword,
-            professionalInfo,
-            specializations: specializationsWithSchedules // Include specializations with schedules 
-        });
+      // Create a new pending doctor with the given information
+      const pendingDoctor = new PendingDoctor({
+          name,
+          email: invitation.email, // Use the email from the invitation
+          password: hashedPassword,
+          professionalInfo,
+          specializations: specializationsWithSchedules // Include specializations with schedules
+      });
 
-        // Save the doctor
-        await pendingDoctor.save();
+      // Save the doctor
+      try {
+          await pendingDoctor.save();
+      } catch (error) {
+          throw new Error(`Error saving doctor: ${error.message}`);
+      }
 
-        // Mark the invitation as used
-        invitation.isInvitationUsed = true;
-        await invitation.save();
+      // Mark the invitation as used
+      invitation.isInvitationUsed = true;
+      try {
+          await invitation.save();
+      } catch (error) {
+          throw new Error(`Error marking invitation as used: ${error.message}`);
+      }
 
-        // Delete the invitation after successful registration
-        await Invitation.deleteOne({ _id: invitation._id });
+      // Delete the invitation after successful registration
+      try {
+          await Invitation.deleteOne({ _id: invitation._id });
+      } catch (error) {
+          throw new Error(`Error deleting invitation: ${error.message}`);
+      }
 
-        // Send an email to the admin to verify the registration
-        const adminEmail = process.env.ADMIN_EMAIL;
-        const subject = 'New Doctor Registration Needs Verification';
-        const html = `<p>A new doctor has registered with the email ${invitation.email}. Please verify the registration by visiting the verification page and approving their account.</p>`;
-        
-        await sendEmail(adminEmail, subject, html);
+      // Send an email to the admin to verify the registration
+      const adminEmail = process.env.ADMIN_EMAIL;
+      const subject = 'New Doctor Registration Needs Verification';
+      try {
+          await sendEmail(adminEmail, subject, `<p>A new doctor has registered with the email ${invitation.email}. Please verify the registration by visiting the verification page and approving their account.</p>`);
+      } catch (error) {
+          throw new Error(`Error sending email: ${error.message}`);
+      }
 
-        res.status(201).json({ msg: 'Doctor registered successfully. Admin will verify the registration.' });
-    } catch (err) {
-        res.status(500).json({ msg: 'Server error', error: err.message });
-    }
+      res.status(201).json({ msg: 'Doctor registered successfully. Admin will verify the registration.' });
+  } catch (error) {
+      console.error(error);
+      res.status(500).json({ msg: 'Server error', error: error.message });
+  }
 };
-
 
 
 
@@ -659,9 +677,6 @@ const handleDoctorFees = async (req, res) => {
       res.status(500).json({ msg: 'Server error', error: error.message });
   }
 };
-
-
-
 
 
 
