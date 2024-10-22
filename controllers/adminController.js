@@ -382,7 +382,13 @@ const createOrUpdateSettings = async (req, res) => {
         aboutUs, 
         socialDetails 
       } = req.body;
-  
+
+
+      // Validate request body
+      if (!applicationName || !companyName || !hospitalEmail || !hospitalPhone || !hospitalStartDay || !hospitalStartTime || !hospitalAddress || !countryCode || !defaultLanguage) {          
+          return res.status(400).json({ msg: 'All fields are required' });
+      }
+
       // Check if settings already exist (only one settings document should exist)
       let settings = await Settings.findOne();
       
@@ -415,15 +421,25 @@ const createOrUpdateSettings = async (req, res) => {
         settings.aboutUs = aboutUs;
         settings.socialDetails = socialDetails;
       }
+
+      // Validate settings data
+    const validationError = settings.validateSync();
+    if (validationError) {
+      return res.status(400).json({ error: 'Validation failed', details: validationError });
+    }
   
       await settings.save();
       res.status(200).json({ message: 'Settings saved successfully', settings });
     } catch (error) {
-      res.status(500).json({ error: 'Error saving settings' });
+        console.error(error);
+        if (error.name === 'MongoError' && error.code === 11000) {
+          return res.status(400).json({ error: 'Duplicate entry' });
+        }
+        res.status(500).json({ error: 'Error saving settings' });
     }
-  };
+};
   
-  const getSettings = async (req, res) => {
+const getSettings = async (req, res) => {
     try {
       const settings = await Settings.findOne(); // Retrieve the only settings document
       if (!settings) {
@@ -433,32 +449,43 @@ const createOrUpdateSettings = async (req, res) => {
     } catch (error) {
       res.status(500).json({ error: 'Error fetching settings' });
     }
-  };
+};
 
 
 const uploadApplicationLogo = async (req, res) => {
-  const file = req.files.applicationLogo ? req.files.applicationLogo[0] : null; // Accessing the uploaded file
-
-    if (!file) {
-        return res.status(400).json({ msg: 'No logo file uploaded' });
-    }
-
     try {
-        let settings = await Settings.findOne();
-        if (!settings) {
-            return res.status(404).json({ error: 'Settings not found' });
-        }
-
-        // Save logo in the settings
-        settings.applicationLogo = {
-            data: file.buffer,
-            contentType: file.mimetype
-        };
-
-        await settings.save();
-        res.status(200).json({ msg: 'Logo uploaded successfully' });
+      const file = req.files.applicationLogo ? req.files.applicationLogo[0] : null;
+  
+      if (!file) {
+        return res.status(400).json({ msg: 'No logo file uploaded' });
+      }
+  
+      if (!file.mimetype.startsWith('image/')) {
+        return res.status(400).json({ msg: 'Only image files are allowed' });
+      }
+  
+      const settings = await Settings.findOne();
+      if (!settings) {
+        return res.status(404).json({ error: 'Settings not found' });
+      }
+  
+      // Save logo in the settings
+      settings.applicationLogo = {
+        data: file.buffer,
+        contentType: file.mimetype
+      };
+  
+      await settings.save();
+  
+      res.status(200).json({ msg: 'Logo uploaded successfully' });
     } catch (err) {
+      if (err.name === 'ValidationError') {
+        res.status(400).json({ msg: 'Validation error', error: err.message });
+      } else if (err.name === 'MongoError') {
+        res.status(500).json({ msg: 'Database error', error: err.message });
+      } else {
         res.status(500).json({ msg: 'Server error', error: err.message });
+      }
     }
 };
 
