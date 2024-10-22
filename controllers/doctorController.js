@@ -451,42 +451,65 @@ const getMyArticles = async (req, res) => {
 
     res.status(200).json(articles);
   } catch (error) {
-    res.status(500).json({ error: 'Error fetching articles' });
+    if (error.name === 'CastError' || error.name === 'ValidationError') {
+      return res.status(400).json({ error: 'Invalid request parameters' });
+    } else if (error.name === 'MongoError') {
+      return res.status(500).json({ error: 'Database error' });
+    } else {
+      return res.status(500).json({ error: 'Internal server error' });
+    }
   }
 };
 
 const updateArticle = async (req, res) => {
   try {
-      const { id } = req.params;
-      const { title, specialization_id, content, schedule_post } = req.body;
-      const file = req.files && req.files.featureImage ? req.files.featureImage[0] : null; // Accessing the uploaded feature image
+    const { id } = req.params;
+    const { title, specialization_id, content, schedule_post } = req.body;
+    const file = req.files && req.files.featureImage ? req.files.featureImage[0] : null;
 
-      // Find the article by its ID
-      const article = await Article.findById(id);
-      if (!article) {
-          return res.status(404).json({ error: 'Article not found' });
+    // Validate request body
+    if (!title || !specialization_id || !content) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
+
+    // Find the article by its ID
+    const article = await Article.findById(id);
+    if (!article) {
+      return res.status(404).json({ error: 'Article not found' });
+    }
+
+    // Update the article fields
+    article.title = title;
+    article.specialization = specialization_id;
+    article.content = content;
+    article.schedule_post = schedule_post;
+    article.status = schedule_post ? 'Scheduled' : 'Draft';
+
+    // If a new feature image was uploaded, update it
+    if (file) {
+      // Validate file type and size
+      if (!file.mimetype.startsWith('image/')) {
+        return res.status(400).json({ error: 'Invalid file type. Only images are allowed.' });
       }
-
-      // Update the article fields
-      article.title = title;
-      article.specialization = specialization_id;
-      article.content = content;
-      article.schedule_post = schedule_post;
-      article.status = schedule_post ? 'Scheduled' : 'Draft';
-
-      // If a new feature image was uploaded, update it
-      if (file) {
-          article.featureImage = {
-              data: file.buffer, // Store image binary data
-              contentType: file.mimetype, // Store image MIME type
-          };
+      if (file.size > 1024 * 1024 * 5) { // 5MB
+        return res.status(400).json({ error: 'File size exceeds the limit of 5MB.' });
       }
+      article.featureImage = {
+        data: file.buffer,
+        contentType: file.mimetype,
+      };
+    }
 
-      // Save the updated article
-      await article.save();
-      res.status(200).json({ message: 'Article updated successfully', article });
+    // Save the updated article
+    await article.save();
+    res.status(200).json({ message: 'Article updated successfully', article });
   } catch (error) {
+    console.error(error);
+    if (error.name === 'ValidationError') {
+      res.status(400).json({ error: 'Validation error', details: error.message });
+    } else {
       res.status(500).json({ error: 'Error updating article', details: error.message });
+    }
   }
 };
 
