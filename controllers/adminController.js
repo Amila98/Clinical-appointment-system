@@ -71,7 +71,15 @@ const sendDoctorInvitation = async (req, res) => {
 
         res.status(200).json({ msg: 'Invitation sent successfully' });
     } catch (error) {
-        res.status(500).json({ msg: 'Server error', error: error.message });
+        if (error.name === 'ValidationError') {
+            return res.status(400).json({ msg: 'Validation error', error: error.message });
+        }
+
+        if (error.code === 'ECONNREFUSED') {
+            return res.status(500).json({ msg: 'Server error', error: 'Email server connection refused' });
+        }
+
+        return res.status(500).json({ msg: 'Server error', error: error.message });
     }
 };
 
@@ -119,7 +127,13 @@ const verifyDoctor = async (req, res) => {
             text: `Dear Dr. ${newDoctor.name},\n\nYour account has been successfully verified. You can now log in using your existing credentials and change your password upon first login.\n\nBest regards,\nYour Company`,
         };
 
-        await transporter.sendMail(mailOptions);
+        // Handle email sending errors
+        try {
+            await transporter.sendMail(mailOptions);
+        } catch (emailError) {
+            console.error('Error sending email:', emailError);
+            return res.status(500).json({ msg: 'Error sending verification email' });
+        }
 
         res.status(200).json({ msg: 'Doctor verified successfully, email sent' });
     } catch (err) {
@@ -185,8 +199,23 @@ const createStaffMember = async (req, res) => {
         // Respond with success message
         res.status(201).json({ msg: 'Staff member created and verification email sent' });
     } catch (err) {
-        // Handle errors
-        res.status(500).json({ msg: 'Server error', error: err.message });
+        // Handle Mongoose validation errors
+        if (err.name === 'ValidationError') {
+            return res.status(400).json({ msg: 'Validation error', error: err.message });
+        }
+
+        // Handle JWT signing errors
+        if (err.name === 'JsonWebTokenError') {
+            return res.status(500).json({ msg: 'Error generating JWT token', error: err.message });
+        }
+
+        // Handle Nodemailer errors
+        if (err.name === 'NodemailerError') {
+            return res.status(500).json({ msg: 'Error sending verification email', error: err.message });
+        }
+
+        // Handle generic server errors
+        return res.status(500).json({ msg: 'Server error', error: err.message });
     }
 };
 
@@ -250,7 +279,7 @@ const changeUserEmail = async (req, res) => {
         const verificationMessage = `<p>Please verify your new email address by clicking the link: <a href="${verificationLink}">${verificationLink}</a></p>`;
         await sendEmail(newEmail, 'Verify your new email', verificationMessage);
 
-        res.status(200).json({ msg: 'Email changed successfully. Verification link sent to the new email.' });
+        return res.status(200).json({ msg: 'Email changed successfully. Verification link sent to the new email.' });
     } catch (err) {
         console.error('Error changing email:', err);
         res.status(500).json({ msg: 'Server error', error: err.message });
@@ -259,11 +288,16 @@ const changeUserEmail = async (req, res) => {
 
 const manageSpecializations = async (req, res) => {
     try {
-        const { method } = req; // Get id from request params
+        const { method } = req;
 
         switch (method) {
-            case 'POST': { // Create a new specialization
+            case 'POST': {
+                // Create a new specialization
                 const { name, description } = req.body;
+
+                if (!name || !description) {
+                    return res.status(400).json({ msg: 'Name and description are required' });
+                }
 
                 const existingSpec = await Specialization.findOne({ name });
                 if (existingSpec) {
@@ -274,27 +308,45 @@ const manageSpecializations = async (req, res) => {
                 await specialization.save();
                 return res.status(201).json(specialization);
             }
-            case 'GET': { // Get all specializations
+            case 'GET': {
+                // Get all specializations
                 const specializations = await Specialization.find();
+                if (!specializations) {
+                    return res.status(404).json({ msg: 'No specializations found' });
+                }
                 return res.status(200).json(specializations);
             }
-            case 'PUT': { // Update an existing specialization
-                const { id } = req.params; // Get the ID from the URL parameters
+            case 'PUT': {
+                // Update an existing specialization
+                const { id } = req.params;
                 const { name, description } = req.body;
+
+                if (!id) {
+                    return res.status(400).json({ msg: 'ID is required' });
+                }
 
                 const specialization = await Specialization.findById(id);
                 if (!specialization) {
                     return res.status(404).json({ msg: 'Specialization not found' });
                 }
 
-                specialization.name = name || specialization.name;
-                specialization.description = description || specialization.description;
+                if (name) {
+                    specialization.name = name;
+                }
+                if (description) {
+                    specialization.description = description;
+                }
                 await specialization.save();
 
                 return res.status(200).json(specialization);
             }
-            case 'DELETE': { // Delete a specialization
-                const { id } = req.params; // Get the ID from the URL parameters
+            case 'DELETE': {
+                // Delete a specialization
+                const { id } = req.params;
+
+                if (!id) {
+                    return res.status(400).json({ msg: 'ID is required' });
+                }
 
                 const specialization = await Specialization.findById(id);
                 if (!specialization) {
@@ -309,7 +361,8 @@ const manageSpecializations = async (req, res) => {
             }
         }
     } catch (error) {
-        res.status(500).json({ msg: 'Error processing request', error });
+        console.error(error);
+        res.status(500).json({ msg: 'Error processing request', error: error.message });
     }
 };
 
@@ -492,37 +545,37 @@ const managePermissions = async (req, res) => {
 
 
             // Delete a role or specific permissions (DELETE)
-            case 'DELETE': {
-                const permissionDoc = await Permission.findOne({ role });
+        case 'DELETE': {
+            const permissionDoc = await Permission.findOne({ role });
 
-                if (!permissionDoc) {
-                    return res.status(404).json({ msg: 'Role not found' });
-                }
-
-                // Check if specific permissions are provided in the request body
-                if (permissions && Object.keys(permissions).length > 0) {
-                    // Selective permission deletion
-                    Object.keys(permissions).forEach(permissionName => {
-                        // Remove only the specified permissions if they exist
-                        if (permissionDoc.permissions.has(permissionName)) {
-                            permissionDoc.permissions.delete(permissionName);
-                        }
-                    });
-
-                    // Save the updated permission document
-                    await permissionDoc.save();
-
-                    return res.json({ msg: 'Selected permissions deleted successfully', permissionDoc });
-                } else {
-                    // If no specific permissions are provided, delete the entire role
-                    await Permission.findOneAndDelete({ role });
-
-                    return res.json({ msg: 'Role and all permissions deleted successfully' });
-                }
+            if (!permissionDoc) {
+                return res.status(404).json({ msg: 'Role not found' });
             }
-                default:
-                    return res.status(405).json({ msg: 'Method not allowed' });
+
+            // Check if specific permissions are provided in the request body
+            if (permissions && Object.keys(permissions).length > 0) {
+                // Selective permission deletion
+                Object.keys(permissions).forEach(permissionName => {
+                    // Remove only the specified permissions if they exist
+                    if (permissionDoc.permissions.has(permissionName)) {
+                        permissionDoc.permissions.delete(permissionName);
+                    }
+                });
+
+                // Save the updated permission document
+                await permissionDoc.save();
+
+                return res.json({ msg: 'Selected permissions deleted successfully', permissionDoc });
+            } else {
+                // If no specific permissions are provided, delete the entire role
+                await Permission.findOneAndDelete({ role });
+
+                return res.json({ msg: 'Role and all permissions deleted successfully' });
             }
+        }
+            default:
+                return res.status(405).json({ msg: 'Method not allowed' });
+        }
     } catch (err) {
         console.error('Server error:', err.message);
         res.status(500).json({ msg: 'Server error', error: err.message });
