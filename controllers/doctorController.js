@@ -683,44 +683,60 @@ const scheduleFollowUpAppointment = async (req, res) => {
 
 const handleDoctorFees = async (req, res) => {
   const { doctorId } = req.params;
-  
+
   try {
-      // Find the doctor by ID
-      const doctor = await Doctor.findById(doctorId);
+    // Find the doctor by ID
+    const doctor = await Doctor.findById(doctorId);
 
-      if (!doctor) {
-          return res.status(404).json({ msg: 'Doctor not found' });
+    if (!doctor) {
+      return res.status(404).json({ msg: 'Doctor not found' });
+    }
+
+    // Handle GET request (Retrieve Doctor Fees)
+    if (req.method === 'GET') {
+      if (!doctor.advanceFee || !doctor.fullFee) {
+        return res.status(404).json({ msg: 'Doctor fees not found' });
+      }
+      return res.status(200).json({ advanceFee: doctor.advanceFee, fullFee: doctor.fullFee });
+    }
+
+    // Handle PUT request (Update Doctor Fees)
+    if (req.method === 'PUT') {
+      const { advanceFee, fullFee } = req.body;
+
+      // Validate request body
+      if (!advanceFee || !fullFee) {
+        return res.status(400).json({ msg: 'Advance fee and full fee are required' });
       }
 
-      // Handle GET request (Retrieve Doctor Fees)
-      if (req.method === 'GET') {
-          return res.status(200).json({ advanceFee: doctor.advanceFee, fullFee: doctor.fullFee });
+      // Ensure only authorized users can update fees
+      const userRole = req.user.role;
+      if (userRole !== 'Admin' && userRole !== 'Doctor') {
+        return res.status(403).json({ msg: 'Unauthorized' });
       }
 
-      // Handle PUT request (Update Doctor Fees)
-      if (req.method === 'PUT') {
-          const { advanceFee, fullFee } = req.body;
-
-          // Ensure only authorized users can update fees
-          const userRole = req.user.role;
-          if (userRole !== 'Admin' && userRole !== 'Doctor') {
-              return res.status(403).json({ msg: 'Unauthorized' });
-          }
-
-          // Update advance and full fees
-          doctor.advanceFee = advanceFee;
-          doctor.fullFee = fullFee;
-
-          await doctor.save();
-          return res.status(200).json({ msg: 'Doctor fees updated successfully', doctor });
+      // Validate fee values
+      if (typeof advanceFee !== 'number' || typeof fullFee !== 'number') {
+        return res.status(400).json({ msg: 'Advance fee and full fee must be numbers' });
       }
 
-      // If not GET or PUT, return method not allowed
-      return res.status(405).json({ msg: 'Method not allowed' });
-      
+      // Update advance and full fees
+      doctor.advanceFee = advanceFee;
+      doctor.fullFee = fullFee;
+
+      try {
+        await doctor.save();
+        return res.status(200).json({ msg: 'Doctor fees updated successfully', doctor });
+      } catch (saveError) {
+        return res.status(500).json({ msg: 'Failed to update doctor fees', error: saveError.message });
+      }
+    }
+
+    // If not GET or PUT, return method not allowed
+    return res.status(405).json({ msg: 'Method not allowed' });
   } catch (error) {
-      console.error('Error handling doctor fees:', error);
-      res.status(500).json({ msg: 'Server error', error: error.message });
+    console.error('Error handling doctor fees:', error);
+    return res.status(500).json({ msg: 'Server error', error: error.message });
   }
 };
 
