@@ -491,37 +491,74 @@ const uploadApplicationLogo = async (req, res) => {
 
   
 const uploadFavicon = async (req, res) => {
-  const file = req.files.favicon ? req.files.favicon[0] : null; // Accessing the uploaded file
-
-  if (!file) {
-      return res.status(400).json({ msg: 'No favicon file uploaded' });
-  }
-
-  try {
+    try {
+      // Check if a favicon file was uploaded
+      const file = req.files.favicon ? req.files.favicon[0] : null;
+      if (!file) {
+        return res.status(400).json({ msg: 'No favicon file uploaded' });
+      }
+  
+      // Validate file type
+      const allowedFileTypes = ['image/x-icon', 'image/png', 'image/jpeg'];
+      if (!allowedFileTypes.includes(file.mimetype)) {
+        return res.status(400).json({ msg: 'Invalid file type. Only .ico, .png, and .jpg files are allowed.' });
+      }
+  
+      // Retrieve settings document from database
       let settings = await Settings.findOne();
       if (!settings) {
-          return res.status(404).json({ error: 'Settings not found' });
+        return res.status(404).json({ error: 'Settings not found' });
       }
-
+  
       // Save favicon in the settings
       settings.favicon = {
-          data: file.buffer,
-          contentType: file.mimetype
+        data: file.buffer,
+        contentType: file.mimetype
       };
-
+  
+      // Validate and sanitize file data
+      if (settings.favicon.data.length > 1024 * 1024) { // 1MB file size limit
+        return res.status(400).json({ msg: 'File size exceeds the limit of 1MB' });
+      }
+  
+      // Update settings document in database
       await settings.save();
+  
+      // Return success response
       res.status(200).json({ msg: 'Favicon uploaded successfully' });
-  } catch (err) {
-      res.status(500).json({ msg: 'Server error', error: err.message });
-  }
+    } catch (err) {
+      // Log error for debugging purposes
+      console.error(err);
+  
+      // Return error response
+      if (err.name === 'ValidationError') {
+        res.status(400).json({ msg: 'Validation error', error: err.message });
+      } else if (err.name === 'MongoError') {
+        res.status(500).json({ msg: 'Database error', error: err.message });
+      } else {
+        res.status(500).json({ msg: 'Server error', error: err.message });
+      }
+    }
 };
+
+
 
 // Generalized CRUD function for Permission management
 const managePermissions = async (req, res) => {
-    const { role } = req.params; // Role in the URL for PUT and DELETE
-    const { permissions } = req.body; // Permissions passed in the request body (for selective permission deletion)
-
     try {
+        const { role } = req.params; // Role in the URL for PUT and DELETE
+        const { permissions } = req.body; // Permissions passed in the request body (for selective permission deletion)
+
+        // Check if role is provided in the URL
+        if (!role && (req.method === 'PUT' || req.method === 'DELETE')) {
+            return res.status(400).json({ msg: 'Role is required in the URL' });
+        }
+
+        // Check if permissions are provided in the request body for POST and PUT
+        if (!permissions && (req.method === 'POST' || req.method === 'PUT')) {
+            return res.status(400).json({ msg: 'Permissions are required in the request body' });
+        }
+
         switch (req.method) {
             // Create or assign new role with permissions (POST)
             case 'POST': {
@@ -570,46 +607,44 @@ const managePermissions = async (req, res) => {
                 return res.json({ msg: 'New permissions added successfully', permissionDoc });
             }
 
-
             // Delete a role or specific permissions (DELETE)
-        case 'DELETE': {
-            const permissionDoc = await Permission.findOne({ role });
+            case 'DELETE': {
+                const permissionDoc = await Permission.findOne({ role });
 
-            if (!permissionDoc) {
-                return res.status(404).json({ msg: 'Role not found' });
+                if (!permissionDoc) {
+                    return res.status(404).json({ msg: 'Role not found' });
+                }
+
+                // Check if specific permissions are provided in the request body
+                if (permissions && Object.keys(permissions).length > 0) {
+                    // Selective permission deletion
+                    Object.keys(permissions).forEach(permissionName => {
+                        // Remove only the specified permissions if they exist
+                        if (permissionDoc.permissions.has(permissionName)) {
+                            permissionDoc.permissions.delete(permissionName);
+                        }
+                    });
+
+                    // Save the updated permission document
+                    await permissionDoc.save();
+
+                    return res.json({ msg: 'Selected permissions deleted successfully', permissionDoc });
+                } else {
+                    // If no specific permissions are provided, delete the entire role
+                    await Permission.findOneAndDelete({ role });
+
+                    return res.json({ msg: 'Role and all permissions deleted successfully' });
+                }
             }
 
-            // Check if specific permissions are provided in the request body
-            if (permissions && Object.keys(permissions).length > 0) {
-                // Selective permission deletion
-                Object.keys(permissions).forEach(permissionName => {
-                    // Remove only the specified permissions if they exist
-                    if (permissionDoc.permissions.has(permissionName)) {
-                        permissionDoc.permissions.delete(permissionName);
-                    }
-                });
-
-                // Save the updated permission document
-                await permissionDoc.save();
-
-                return res.json({ msg: 'Selected permissions deleted successfully', permissionDoc });
-            } else {
-                // If no specific permissions are provided, delete the entire role
-                await Permission.findOneAndDelete({ role });
-
-                return res.json({ msg: 'Role and all permissions deleted successfully' });
-            }
-        }
             default:
                 return res.status(405).json({ msg: 'Method not allowed' });
         }
     } catch (err) {
         console.error('Server error:', err.message);
-        res.status(500).json({ msg: 'Server error', error: err.message });
+        return res.status(500).json({ msg: 'Server error', error: err.message });
     }
 };
-
-  
 
 
   
