@@ -303,10 +303,16 @@ const treatmentPlan = async (req, res) => {
       await Appointment.findByIdAndDelete(appointmentId);
 
       res.status(201).json({ msg: 'Treatment plan and/or prescription added and appointment moved to history', history: historyEntry });
-  } catch (error) {
+    } catch (error) {
       console.error('Error adding treatment plan and prescription:', error);
-      res.status(500).json({ msg: 'Server error', error: error.message });
-  }
+      if (error.name === 'ValidationError') {
+        res.status(400).json({ msg: 'Validation error', error: error.message });
+      } else if (error.name === 'MongoError') {
+        res.status(500).json({ msg: 'Database error', error: error.message });
+      } else {
+        res.status(500).json({ msg: 'Server error', error: error.message });
+      }
+    }
 };
 
 
@@ -340,10 +346,16 @@ const updateTreatment = async (req, res) => {
       await appointmentHistory.save();
 
       res.status(200).json({ msg: 'Appointment history updated successfully', history: appointmentHistory });
-  } catch (error) {
+    } catch (error) {
       console.error('Error updating treatment plan and prescription:', error);
-      res.status(500).json({ msg: 'Server error', error: error.message });
-  }
+      if (error.name === 'ValidationError') {
+        res.status(400).json({ msg: 'Validation error', error: error.message });
+      } else if (error.name === 'MongoError') {
+        res.status(500).json({ msg: 'Database error', error: error.message });
+      } else {
+        res.status(500).json({ msg: 'Server error', error: error.message });
+      }
+    }
 };
 
 
@@ -394,6 +406,7 @@ const createArticle = async (req, res) => {
           article
       });
   } catch (err) {
+    console.error(err);
       res.status(500).json({ msg: 'Server error', error: err.message });
   }
 };
