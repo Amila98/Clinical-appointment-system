@@ -56,8 +56,6 @@ const registerPatient = async (req, res) => {
         uploadDate: Date.now(),
       }));
     }
-    console.log(req.file);
-
 
     // Create a new patient object with the additional fields
     patient = new Patient({
@@ -106,7 +104,15 @@ const registerPatient = async (req, res) => {
                      <a href="${verificationLink}">${verificationLink}</a>`;
 
     // Send the verification email
-    await sendEmail(patient.email, 'Verify your email', message);
+    await sendEmail(patient.email, 'Verify your email', message)
+      .catch(err => {
+        console.error('Error sending verification email:', err);
+        return res.status(500).json({ 
+          success: false, 
+          msg: 'Error sending verification email', 
+          error: err.message 
+        });
+      });
 
     // Return a success response
     res.status(200).json({ 
@@ -122,7 +128,6 @@ const registerPatient = async (req, res) => {
     });
   }
 };
-
 
 
 // Route to handle email verification
@@ -158,19 +163,23 @@ const verify = async (req, res) => {
 };
 
 
-
 // Request password reset
 const requestPasswordReset = async (req, res) => {
-  // Destructure the email from the request body
-  const { email } = req.body;
-
   try {
+    // Destructure the email from the request body
+    const { email } = req.body;
+
+    // Check if email is provided
+    if (!email) {
+      return res.status(400).json({ msg: 'Email is required' });
+    }
+
     // Find the patient with the provided email
     const patient = await Patient.findOne({ email, role: 'patient' });
 
     // If patient does not exist, return an error message
     if (!patient) {
-      return res.status(400).json({ msg: 'User with this email does not exist' });
+      return res.status(404).json({ msg: 'User with this email does not exist' });
     }
 
     // Generate reset token
@@ -190,6 +199,16 @@ const requestPasswordReset = async (req, res) => {
     // Return success message
     res.status(200).json({ msg: 'Password reset email sent' });
   } catch (err) {
+    // Check if error is due to JWT signing
+    if (err.name === 'JsonWebTokenError') {
+      return res.status(500).json({ msg: 'Error generating reset token' });
+    }
+
+    // Check if error is due to email sending
+    if (err.name === 'EmailError') {
+      return res.status(500).json({ msg: 'Error sending reset email' });
+    }
+
     // Log the error and return a server error message
     console.error(err.message);
     res.status(500).json({ msg: 'Server error', error: err.message });
