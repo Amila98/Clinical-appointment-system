@@ -517,6 +517,11 @@ const deleteArticle = async (req, res) => {
   try {
     const { id } = req.params;
 
+    // Check if the article ID is valid
+    if (!id || typeof id !== 'string') {
+      return res.status(400).json({ error: 'Invalid article ID' });
+    }
+
     // Check if the article exists
     const article = await Article.findById(id);
     if (!article) {
@@ -530,14 +535,19 @@ const deleteArticle = async (req, res) => {
     }
 
     // Delete the article
-    await Article.findByIdAndDelete(id);
-    res.status(200).json({ message: 'Article deleted successfully' });
+    try {
+      await Article.findByIdAndDelete(id);
+      res.status(200).json({ message: 'Article deleted successfully' });
+    } catch (deleteError) {
+      console.error('Error deleting article:', deleteError);
+      res.status(500).json({ error: 'Error deleting article' });
+    }
 
   } catch (error) {
-    res.status(500).json({ error: 'Error deleting article' });
+    console.error('Error handling delete article request:', error);
+    res.status(500).json({ error: 'Internal Server Error' });
   }
 };
-
 
 
 
