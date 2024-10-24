@@ -103,6 +103,8 @@ const verifyDoctor = async (req, res) => {
             specializations: pendingDoctor.specializations, // Use the specializations array with schedules
             isVerified: true,
             mustChangePassword: true,
+            advanceFee: pendingDoctor.advanceFee,
+            fullFee: pendingDoctor.fullFee // Ensure fees are transferred
         });
 
         // Save the new doctor record
