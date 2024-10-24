@@ -7,15 +7,28 @@ const { authMiddleware, roleCheck } = require('../middleware/authMiddleware');
 const { uploadImageMiddleware } = require('../middleware/uploadMiddleware');
 
 
-// Route to get a list of pending doctors
+// Route to get a list of pending doctors or a specific doctor by id
 router.get('/pending-doctors', async (req, res) => {
-  try {
-      const pendingDoctors = await PendingDoctor.find({}); // Fetch all pending doctors
-      res.status(200).json(pendingDoctors);
-  } catch (error) {
-      res.status(500).json({ msg: 'Server error', error: error.message });
-  }
-});
+    try {
+        const { id } = req.query;  // Get the id from query parameters
+  
+        if (id) {
+            // If id is provided, fetch the specific doctor by id
+            const doctor = await PendingDoctor.findById(id);
+            if (!doctor) {
+                return res.status(404).json({ msg: 'Doctor not found' });
+            }
+            res.status(200).json(doctor);
+        } else {
+            // If no id is provided, fetch all pending doctors
+            const pendingDoctors = await PendingDoctor.find({});
+            res.status(200).json(pendingDoctors);
+        }
+    } catch (error) {
+        res.status(500).json({ msg: 'Server error', error: error.message });
+    }
+  });
+  
 
 // Invite doctor route
 router.post('/invite-doctor', authMiddleware, roleCheck(['invite_doctor']), sendDoctorInvitation);
