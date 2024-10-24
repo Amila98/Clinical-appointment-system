@@ -2,7 +2,7 @@
 const express = require('express');
 const router = express.Router();
 const Invitation  = require('../models/Invitation');
-const { registerDoctor, appointmentHistory, treatmentPlan, updateTreatment, createArticle, getMyArticles, updateArticle,  deleteArticle } = require('../controllers/doctorController');
+const { registerDoctor, appointmentHistory, treatmentPlan, updateTreatment, createArticle, getMyArticles, updateArticle,  deleteArticle, scheduleFollowUpAppointment, handleDoctorFees } = require('../controllers/doctorController');
 const { authMiddleware, roleCheck } = require('../middleware/authMiddleware');
 const { uploadImageMiddleware } = require('../middleware/uploadMiddleware');
 
@@ -26,7 +26,7 @@ router.get('/register/:token', async (req, res) => {
 
 router.post('/register/:token', registerDoctor);
 
-router.get('/appointments/:patientId', authMiddleware, roleCheck(['view_appointments']),appointmentHistory)
+router.get('/appointmentsHistory/:patientId/:appointmentId?', authMiddleware, roleCheck(['view_appointments']), appointmentHistory);
 
 router.post('/treatment-plan/:appointmentId', authMiddleware,treatmentPlan)
 
@@ -39,5 +39,12 @@ router.get('/my-articles', authMiddleware, getMyArticles)
 router.put('/update-article/:articleId',uploadImageMiddleware, authMiddleware, updateArticle)
 
 router.delete('/delete-article/:articleId', authMiddleware, deleteArticle)
+
+router.post('/followup-appointment/:appointmentId', authMiddleware, roleCheck(['followup_appointment']), scheduleFollowUpAppointment)
+
+router.get('/fees/:doctorId', authMiddleware, handleDoctorFees);
+
+// Route to update doctor fees (PUT)
+router.put('/fees/:doctorId', authMiddleware, handleDoctorFees);
 
 module.exports = router;
