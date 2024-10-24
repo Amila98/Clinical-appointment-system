@@ -16,7 +16,7 @@ const Article = require('../models/Article');
 
 const registerDoctor = async (req, res) => {
   try {
-      const { name, password, professionalInfo, specializations } = req.body;
+      const { name, password, professionalInfo, specializations, advanceFee, fullFee } = req.body;  // Include advanceFee and fullFee
       const { token } = req.params;
 
       // Find the invitation with the given token
@@ -40,55 +40,51 @@ const registerDoctor = async (req, res) => {
 
       if (specializations && specializations.length > 0) {
           specializationsWithSchedules = await Promise.all(specializations.map(async (spec) => {
-              try {
-                  const { specializationId, schedules } = spec;
+              const { specializationId, schedules } = spec;
 
-                  // Check if the specialization exists
-                  const specialization = await Specialization.findById(specializationId);
-                  if (!specialization) {
-                      throw new Error(`Specialization not found with ID: ${specializationId}`);
+              // Check if the specialization exists
+              const specialization = await Specialization.findById(specializationId);
+              if (!specialization) {
+                  throw new Error(`Specialization not found with ID: ${specializationId}`);
+              }
+
+              // Prepare schedules and divide time into slots
+              const createdSchedules = schedules.map(sched => {
+                  const { day, startTime, endTime, appointmentTimeLimit } = sched;
+                  const appointmentLimit = appointmentTimeLimit;
+
+                  // Convert start and end time to Date objects
+                  const start = new Date(`1970-01-01T${startTime}:00Z`);
+                  const end = new Date(`1970-01-01T${endTime}:00Z`);
+
+                  // Calculate total time and number of slots
+                  const totalMinutes = (end - start) / (1000 * 60);
+                  const numSlots = Math.floor(totalMinutes / appointmentLimit);
+
+                  let appointmentSlots = [];
+                  for (let i = 0; i < numSlots; i++) {
+                      let slotStart = new Date(start.getTime() + i * appointmentLimit * 60000);
+                      let slotEnd = new Date(slotStart.getTime() + appointmentLimit * 60000);
+
+                      appointmentSlots.push({
+                          startTime: slotStart.toISOString().substring(11, 16),
+                          endTime: slotEnd.toISOString().substring(11, 16),
+                      });
                   }
 
-                  // Prepare schedules and divide time into slots
-                  const createdSchedules = schedules.map(sched => {
-                      const { day, startTime, endTime, appointmentTimeLimit } = sched;
-                      const appointmentLimit = appointmentTimeLimit;
-
-                      // Convert start and end time to Date objects
-                      const start = new Date(`1970-01-01T${startTime}:00Z`);
-                      const end = new Date(`1970-01-01T${endTime}:00Z`);
-
-                      // Calculate total time and number of slots
-                      const totalMinutes = (end - start) / (1000 * 60);
-                      const numSlots = Math.floor(totalMinutes / appointmentLimit);
-
-                      let appointmentSlots = [];
-                      for (let i = 0; i < numSlots; i++) {
-                          let slotStart = new Date(start.getTime() + i * appointmentLimit * 60000);
-                          let slotEnd = new Date(slotStart.getTime() + appointmentLimit * 60000);
-
-                          appointmentSlots.push({
-                              startTime: slotStart.toISOString().substring(11, 16),
-                              endTime: slotEnd.toISOString().substring(11, 16),
-                          });
-                      }
-
-                      return {
-                          day,
-                          startTime,
-                          endTime,
-                          appointmentTimeLimit: appointmentLimit,
-                          appointmentSlots: appointmentSlots // This stores the generated slots
-                      };
-                  });
-
                   return {
-                      specializationId,
-                      schedules: createdSchedules
+                      day,
+                      startTime,
+                      endTime,
+                      appointmentTimeLimit: appointmentLimit,
+                      appointmentSlots: appointmentSlots // This stores the generated slots
                   };
-              } catch (error) {
-                  throw new Error(`Error processing specialization: ${error.message}`);
-              }
+              });
+
+              return {
+                  specializationId,
+                  schedules: createdSchedules
+              };
           }));
       }
 
@@ -98,39 +94,25 @@ const registerDoctor = async (req, res) => {
           email: invitation.email, // Use the email from the invitation
           password: hashedPassword,
           professionalInfo,
-          specializations: specializationsWithSchedules // Include specializations with schedules
+          specializations: specializationsWithSchedules,
+          advanceFee,  // Save advance fee
+          fullFee,     // Save full fee
       });
 
       // Save the doctor
-      try {
-          await pendingDoctor.save();
-      } catch (error) {
-          throw new Error(`Error saving doctor: ${error.message}`);
-      }
+      await pendingDoctor.save();
 
       // Mark the invitation as used
       invitation.isInvitationUsed = true;
-      try {
-          await invitation.save();
-      } catch (error) {
-          throw new Error(`Error marking invitation as used: ${error.message}`);
-      }
+      await invitation.save();
 
       // Delete the invitation after successful registration
-      try {
-          await Invitation.deleteOne({ _id: invitation._id });
-      } catch (error) {
-          throw new Error(`Error deleting invitation: ${error.message}`);
-      }
+      await Invitation.deleteOne({ _id: invitation._id });
 
       // Send an email to the admin to verify the registration
       const adminEmail = process.env.ADMIN_EMAIL;
       const subject = 'New Doctor Registration Needs Verification';
-      try {
-          await sendEmail(adminEmail, subject, `<p>A new doctor has registered with the email ${invitation.email}. Please verify the registration by visiting the verification page and approving their account.</p>`);
-      } catch (error) {
-          throw new Error(`Error sending email: ${error.message}`);
-      }
+      await sendEmail(adminEmail, subject, `<p>A new doctor has registered with the email ${invitation.email}. Please verify the registration by visiting the verification page and approving their account.</p>`);
 
       res.status(201).json({ msg: 'Doctor registered successfully. Admin will verify the registration.' });
   } catch (error) {
