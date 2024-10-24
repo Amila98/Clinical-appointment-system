@@ -3,28 +3,32 @@ const jwt = require('jsonwebtoken');
 const Permission = require('../models/Permission');
 const { decryptToken } = require('../utils/cryptoUtils');
 
+
 const authMiddleware = async (req, res, next) => {
     const token = req.header('Authorization')?.replace('Bearer ', '');
   
     if (!token) {
-      return res.status(401).json({ msg: 'No token, authorization denied' });
+        return res.status(401).json({ msg: 'No token, authorization denied' });
     }
   
     try {
-      // Decrypt the token
-      const decryptedToken = decryptToken(token);
+        // Decrypt the token
+        const decryptedToken = decryptToken(token);
+        console.log('Decrypted Token:', decryptedToken); // Log the decrypted token for debugging
   
-      // Verify the JWT token
-      const decoded = jwt.verify(decryptedToken, process.env.JWT_SECRET);
+        // Verify the JWT token
+        const decoded = jwt.verify(decryptedToken, process.env.JWT_SECRET);
+        console.log('Decoded Token:', decoded); // Log the decoded token for debugging
   
-      // Attach user data to request object
-      req.user = decoded;
+        // Attach user data to request object
+        req.user = decoded;
   
-      next();
+        next();
     } catch (err) {
-      return res.status(401).json({ msg: 'Token is not valid', error: err.message });
+        console.error('Token verification error:', err.message); // Log error details
+        return res.status(401).json({ msg: 'Token is not valid', error: err.message });
     }
-  };
+};
 
 
 const roleCheck = (requiredPermissions) => {
