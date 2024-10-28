@@ -21,7 +21,9 @@ const AppointmentSchema = new mongoose.Schema({
         required: true,
     },
     timeSlot: {
-        id: { type: mongoose.Schema.Types.ObjectId, required: true }
+        id: { type: mongoose.Schema.Types.ObjectId, required: true },
+        start: { type: String, required: true }, // Add start time
+        end: { type: String, required: true },   // Add end
     },
 
     
@@ -30,6 +32,8 @@ const AppointmentSchema = new mongoose.Schema({
         enum: ['Scheduled', 'Completed', 'Cancelled'], 
         default: 'Scheduled' 
     },
+
+    paymentStatus: { type: String, enum: ['Pending', 'Completed', 'Partial'], default: 'Pending' },
     created_at: { type: Date, default: Date.now },
 
 });
