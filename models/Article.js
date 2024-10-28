@@ -7,7 +7,10 @@ const articleSchema = new mongoose.Schema({
   schedule_post: { type: Date },
   status: { type: String, enum: ['Draft', 'Published', 'Scheduled'], default: 'Draft' },
   author: { type: mongoose.Schema.Types.ObjectId, ref: 'Doctor', required: true },
-  featurImage: { data: Buffer, contentType: String },
+  featureImage: {
+    data: Buffer, // Binary data of the image
+    contentType: String, // MIME type (e.g., image/jpeg, image/png)
+},
   createdAt: { type: Date, default: Date.now }
 });
 
