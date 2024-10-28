@@ -69,6 +69,7 @@ const DoctorSchema = new mongoose.Schema({
     data: Buffer,
     contentType: String
   },
+  refreshToken: { type: String, default: null },
   dateRegistered: {
     type: Date,
     default: Date.now,
