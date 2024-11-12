@@ -39,3 +39,14 @@ exports.decryptToken = (encryptedData) => {
       throw new Error('Decryption failed');
   }
 };
+
+
+// Function to generate the hash value
+const generatePayHereHash = (merchantId, orderId, amount, currency, merchantSecret) => {
+    const formattedAmount = parseFloat(amount).toFixed(2);
+    const secretHash = crypto.createHash('md5').update(merchantSecret).digest('hex').toUpperCase();
+    const hash = crypto.createHash('md5').update(`${merchantId}${orderId}${formattedAmount}${currency}${secretHash}`).digest('hex').toUpperCase();
+    return hash;
+};
+
+
