@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const jwt = require('jsonwebtoken');
 
-const { verifyStaff } = require('../controllers/staffController');
+const { verifyStaff, sendReminders } = require('../controllers/staffController');
 const { authMiddleware,roleCheck } = require('../middleware/authMiddleware'); // Middleware to authenticate the token
 
 
@@ -25,6 +25,8 @@ router.get('/verify/:token', (req, res) => {
 
 // Route to verify staff
 router.post('/verify/:token', verifyStaff);
+
+router.post('/send-reminders', authMiddleware, sendReminders);
 
 
 
