@@ -59,7 +59,7 @@ const StaffSchema = new Schema({
     profilePicture: { 
         data: Buffer,
         contentType: String
-    },
+    }
 });
 
 const Staff = mongoose.model('Staff', StaffSchema);
