@@ -6,10 +6,6 @@ const AppointmentHistorySchema = new mongoose.Schema({
     patient: { type: mongoose.Schema.Types.ObjectId, ref: 'Patient', required: true },
     specialization: { type: mongoose.Schema.Types.ObjectId, ref: 'Specialization', required: true },
     day: { type: String, required: true },
-    timeSlot: {
-        start: { type: String, required: true },
-        end: { type: String, required: true }
-    },
     treatmentPlan: {
         type: String,  // Stores the treatment plan entered by the doctor
         required: true,
