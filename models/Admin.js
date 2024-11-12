@@ -31,8 +31,7 @@ const adminSchema = new mongoose.Schema({
     profilePicture: { 
         data: Buffer,
         contentType: String
-    },
-    refreshToken: { type: String, default: null }
+    }
 });
 
 const Admin = mongoose.model('Admin', adminSchema);
