@@ -811,10 +811,11 @@ async function updateSlots() {
 
 
 // Schedule the updateSlots function to run every minute using cron
-//cron.schedule('* * * * *', () => {
-  //console.log('Running updateSlots every minute');
-  //updateSlots();
-//});
+/*cron.schedule('* * * * *', () => {
+  console.log('Running updateSlots every minute');
+  updateSlots();
+});
+*/
 
 
 async function resetSlotAvailability() {
