@@ -2,7 +2,6 @@ const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 
 const PatientSchema = new mongoose.Schema({
-  refreshToken: { type: String, default: null },
   firstName: {
     type: String,
     required: true,
