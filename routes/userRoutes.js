@@ -1,17 +1,26 @@
 const express = require('express');
+require('dotenv').config();
 const Specialization = require('../models/Specialization');
 const Staff = require('../models/Staff');
 const Doctor = require('../models/Doctor');
 const Appointment = require('../models/Appointment');
 const { uploadImageMiddleware } = require('../middleware/uploadMiddleware');
 const { authMiddleware, roleCheck } = require('../middleware/authMiddleware');
-const { loginUser,viewUserDetails,updatePersonalDetails, createUser, getUserById, updateUser, deleteUser, changeOwnPassword,
+const { loginUser,refreshToken,logoutUser,viewUserDetails,updatePersonalDetails, createUser, getUserById, updateUser, deleteUser, changeOwnPassword,
     getDoctorsBySpecialization,getAvailableDaysForDoctor, getPatients, getAvailableSlotsForDoctor, placeAppointment, manageSchedules, 
-    manageBreaks,updateAppointment, deleteAppointment,getAppointments } = require('../controllers/userController');
+    manageBreaks,updateAppointment, deleteAppointment,getAppointments, makePayment, checkBalance, payBalance,
+    searchReports, createReport, updateReport, deleteReport, downloadReport,getInvoice,fetchInvoices,handlePaymentNotification } = require('../controllers/userController');
 
 const router = express.Router();
 
 router.post('/login', loginUser);
+
+/*
+router.post('/refresh-token', refreshToken);
+
+router.post('/logout', logoutUser);
+
+*/
 
 router.get('/view-user', authMiddleware, viewUserDetails);
 
@@ -105,6 +114,88 @@ router.get('/all-appointments', authMiddleware,roleCheck(['view_appointments']),
         res.status(500).json({ msg: 'Error fetching appointments', error: error.message });
     }
 });
+
+router.post('/payment', authMiddleware, makePayment);
+
+router.get('/payment-notify', authMiddleware, handlePaymentNotification);
+
+
+router.get('/check-balance', authMiddleware, checkBalance);
+
+router.post('/pay-balance', authMiddleware, payBalance);
+
+
+// Get/Search Reports
+router.get('/reports', authMiddleware, searchReports);
+
+// Create a new report
+router.post('/reports', authMiddleware, createReport);
+
+// Update a report by reportId
+router.put('/reports/:reportId', authMiddleware, updateReport);
+
+// Delete a report by reportId
+router.delete('/reports/:reportId', authMiddleware, deleteReport);
+
+// Download filtered reports as CSV
+router.get('/reports/download', downloadReport);
+
+/*router.get('/get-appointments/:appointmentId', authMiddleware, roleCheck(['view_appointments']), async (req, res) => {
+    const { appointmentId } = req.params;  // Get the appointmentId from URL parameters
+
+    try {
+        const appointment = await Appointment.findById(appointmentId)
+            .populate('doctor', 'name')
+            .populate('patient', 'name')
+            .populate('specialization', 'name');
+
+        if (!appointment) {
+            return res.status(404).json({ msg: 'Appointment not found' });
+        }
+
+        res.status(200).json(appointment);
+    } catch (error) {
+        console.error('Error fetching appointment details:', error);
+        res.status(500).json({ msg: 'Error fetching appointment details', error: error.message });
+    }
+});
+
+*/
+
+
+
+// GET endpoint to fetch fullFee and advanceFee for a doctor
+router.get('/doctor-fees', authMiddleware, async (req, res) => {
+    try {
+      // Get doctorId from query string
+      const doctorId = req.query.doctorId;
+  
+      if (!doctorId) {
+        return res.status(400).json({ message: 'DoctorId is required' });
+      }
+      
+      // Fetch the doctor by ID and only retrieve the fullFee and advanceFee fields
+      const doctor = await Doctor.findById(doctorId).select('fullFee advanceFee');
+      
+      if (!doctor) {
+        return res.status(404).json({ message: 'Doctor not found' });
+      }
+  
+      // Send the fees in the response
+      res.json({
+        fullFee: doctor.fullFee,
+        advanceFee: doctor.advanceFee,
+      });
+    } catch (error) {
+      res.status(500).json({ message: 'Server error', error });
+    }
+  });
+
+
+
+router.get('/invoice', authMiddleware, getInvoice);
+
+router.get('/fetch-invoices', authMiddleware, fetchInvoices);
 
 
 
