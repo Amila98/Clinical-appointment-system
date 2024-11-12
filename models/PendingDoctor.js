@@ -62,6 +62,9 @@ const pendingDoctorSchema = new mongoose.Schema({
             }]
         }]
     }],
+    advanceFee: { type: Number, required: true },  // The advance payment amount
+    fullFee: { type: Number, required: true },      // The full payment amount
+
     dateRegistered: {
         type: Date,
         default: Date.now
