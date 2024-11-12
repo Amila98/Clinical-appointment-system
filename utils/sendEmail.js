@@ -26,4 +26,10 @@ const sendEmail = async (to, subject, html) => {
   }
 };
 
-module.exports = sendEmail;
+const sendReminder = async (email, message) => {
+  const subject = "Appointment Reminder";
+  await sendEmail(email, subject, message); // Use sendEmail to send the actual email
+};
+
+
+module.exports = { sendEmail, sendReminder };
