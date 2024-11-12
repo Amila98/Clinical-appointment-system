@@ -1,6 +1,9 @@
 const jwt = require('jsonwebtoken'); // Import jsonwebtoken
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
+require('dotenv').config();
+const { encryptToken } = require('../utils/cryptoUtils');
+const { decryptToken } = require('../utils/cryptoUtils');
 const Admin = require('../models/Admin');
 const Staff = require('../models/Staff');
 const Patient = require('../models/Patient');
@@ -8,6 +11,11 @@ const Doctor = require('../models/Doctor');
 const Permission = require('../models/Permission');
 const Appointment = require('../models/Appointment'); 
 const Break = require('../models/Break');
+const Invoice = require('../models/Invoice');
+const Report = require('../models/Report');
+const  processCardPayment   = require('../utils/processCardPayment');
+const { Parser } = require('json2csv');
+const { v4: uuidv4 } = require('uuid');
 
 
 
@@ -27,6 +35,183 @@ const getUserModel = async (userId) => {
 
     return null;  // If no role matches
 };
+
+
+/*
+// Helper function to generate an access token (short-lived)
+const generateAccessToken = (user) => {
+    return jwt.sign(user, process.env.ACCESS_TOKEN_SECRET, { expiresIn: '15m' }); // Access token expires in 15 minutes
+};
+
+// Helper function to generate a refresh token (long-lived)
+const generateRefreshToken = (user) => {
+    return jwt.sign(user, process.env.REFRESH_TOKEN_SECRET, { expiresIn: '7d' }); // Refresh token expires in 7 days
+};
+
+const loginUser = async (req, res) => {
+    const { email, password } = req.body;
+
+    try {
+        // Find the user across all roles by email
+        const user = await Admin.findOne({ email }) ||
+                     await Doctor.findOne({ email }) ||
+                     await Patient.findOne({ email }) ||
+                     await Staff.findOne({ email });
+
+        if (!user) {
+            return res.status(400).json({ msg: 'Invalid credentials' });
+        }
+
+        // Check if the user is verified (only for non-admin roles)
+        if (!(user instanceof Admin) && !user.isVerified) {
+            return res.status(403).json({ msg: 'Account not verified. Please complete the verification process.' });
+        }
+
+        // Compare the provided password with the hashed password in the database
+        const isMatch = await bcrypt.compare(password, user.password);
+        if (!isMatch) {
+            return res.status(400).json({ msg: 'Invalid credentials' });
+        }
+
+        // Determine the user role for the token
+        const role = user.role;
+
+        // If the user must change their password (and is not a patient)
+        if (user.mustChangePassword && role !== 'Patient') {
+            const accessToken = generateAccessToken({ userId: user._id, role });
+            const refreshToken = generateRefreshToken({ userId: user._id, role });
+
+            // Encrypt the refresh token before storing
+            const encryptedRefreshToken = encryptToken(refreshToken);
+            user.refreshToken = encryptedRefreshToken; // Store the encrypted refresh token
+            await user.save();
+
+            return res.status(200).json({
+                msg: 'Password change required',
+                mustChangePassword: true,
+                accessToken,
+                refreshToken
+            });
+        }
+
+        // Fetch permissions for the user
+        const permissionDoc = await Permission.findOne({ role: user.role });
+
+        if (!permissionDoc) {
+            return res.status(403).json({ msg: 'Access denied: role permissions not found' });
+        }
+
+        const permissions = permissionDoc.permissions || {};
+
+        // Generate access and refresh tokens
+        const accessToken = generateAccessToken({ userId: user._id, role, isVerified: user.isVerified, permissions });
+        const refreshToken = generateRefreshToken({ userId: user._id, role });
+
+        // Encrypt the refresh token before storing
+        const encryptedRefreshToken = encryptToken(refreshToken);
+        user.refreshToken = encryptedRefreshToken; // Store the encrypted refresh token
+        await user.save();
+
+        // Encrypt the access token before sending (if necessary)
+        const encryptedAccessToken = encryptToken(accessToken);
+
+        // Send both tokens to the client
+        return res.status(200).json({
+            msg: 'Login successful',
+            accessToken: encryptedAccessToken,
+            refreshToken: encryptedRefreshToken
+        });
+
+    } catch (err) {
+        res.status(500).json({ msg: 'Server error', error: err.message });
+    }
+};
+
+
+const refreshToken = async (req, res) => {
+    const { token } = req.body; // Get the refresh token from the request body
+
+    if (!token) {
+        return res.status(401).json({ msg: 'Refresh token is required' });
+    }
+
+    try {
+        // Decrypt the refresh token
+        const decryptedToken = decryptToken(token);
+
+        // Verify the refresh token
+        jwt.verify(decryptedToken, process.env.JWT_SECRET, async (err, user) => {
+            if (err) {
+                return res.status(403).json({ msg: 'Invalid refresh token' });
+            }
+
+            // Find the user by userId in the database
+            const foundUser = await Admin.findById(user.userId) ||
+                              await Doctor.findById(user.userId) ||
+                              await Patient.findById(user.userId) ||
+                              await Staff.findById(user.userId);
+
+            if (!foundUser || foundUser.refreshToken !== token) {
+                return res.status(403).json({ msg: 'Refresh token is invalid or does not match' });
+            }
+
+            // Generate new access token
+            const newAccessToken = generateAccessToken({ userId: user.userId, role: user.role });
+
+            // Optionally generate a new refresh token and store it
+            const newRefreshToken = generateRefreshToken({ userId: user.userId, role: user.role });
+            const encryptedNewRefreshToken = encryptToken(newRefreshToken);
+
+            // Store the new encrypted refresh token
+            foundUser.refreshToken = encryptedNewRefreshToken; 
+            await foundUser.save();
+
+            return res.status(200).json({
+                accessToken: encryptToken(newAccessToken), // Send the new access token encrypted
+                refreshToken: encryptedNewRefreshToken // Send the new encrypted refresh token
+            });
+        });
+    } catch (error) {
+        res.status(500).json({ msg: 'Server error', error: error.message });
+    }
+};
+
+
+const logoutUser = async (req, res) => {
+    const { token } = req.body; // Get the refresh token from the request body
+
+    if (!token) {
+        return res.status(400).json({ msg: 'Refresh token is required' });
+    }
+
+    try {
+        // Verify the refresh token without decrypting
+        jwt.verify(token, process.env.JWT_SECRET, async (err, user) => {
+            if (err) {
+                return res.status(403).json({ msg: 'Invalid refresh token' });
+            }
+
+            // Find the user and clear their refresh token
+            const foundUser = await Admin.findById(user.userId) ||
+                              await Doctor.findById(user.userId) ||
+                              await Patient.findById(user.userId) ||
+                              await Staff.findById(user.userId);
+
+            if (!foundUser) {
+                return res.status(404).json({ msg: 'User not found' });
+            }
+
+            foundUser.refreshToken = null; // Clear the refresh token
+            await foundUser.save();
+
+            return res.status(200).json({ msg: 'Logged out successfully' });
+        });
+    } catch (error) {
+        res.status(500).json({ msg: 'Server error', error: error.message });
+    }
+};
+
+*/
 
 
 const loginUser = async (req, res) => {
@@ -60,7 +245,8 @@ const loginUser = async (req, res) => {
         // If the user must change their password (and is not a patient)
         if (user.mustChangePassword && role !== 'Patient') {
             const token = jwt.sign({ userId: user._id, role }, process.env.JWT_SECRET, { expiresIn: '1d' });
-            return res.status(200).json({ msg: 'Password change required', mustChangePassword: true, token });
+            const encryptedToken = encryptToken(token); // Encrypt the token
+            return res.status(200).json({ msg: 'Password change required', mustChangePassword: true, token: encryptedToken });
         }
 
         // Fetch permissions directly as an object with boolean values
@@ -75,15 +261,17 @@ const loginUser = async (req, res) => {
 
         // Generate the token with permissions included
         const token = jwt.sign({ userId: user._id, role, isVerified: user.isVerified, permissions: permissions }, process.env.JWT_SECRET, { expiresIn: '1d' });
-
+        const encryptedToken = encryptToken(token); // Encrypt the token
 
         // Return token (you don't need to return permissions separately)
-        return res.status(200).json({ token });
+        return res.status(200).json({ msg: 'Login successful', token: encryptedToken});
 
     } catch (err) {
     res.status(500).json({ msg: 'Server error', error: err.message });
     }
 };
+
+
 
 const viewUserDetails = async (req, res) => {
     // Get the user ID from the request user object (token)
@@ -105,21 +293,21 @@ const viewUserDetails = async (req, res) => {
         // Return the user details
         res.status(200).json(user);
     } catch (err) {
-        // If an error occurs, return a server error message
-        res.status(500).json({ msg: 'Server error', error: err.message });
+        if (err.message === 'User not found') {
+            res.status(404).json({ msg: 'User not found' });
+        } else {
+            res.status(500).json({ msg: 'Server error', error: err.message });
+        }
     }
 };
 
+
 const updatePersonalDetails = async (req, res) => {
-    // Extract the JWT token from the Authorization header
-    const token = req.headers.authorization.split(' ')[1];
-
     try {
-        // Decode the token to get user information
-        const decoded = jwt.verify(token, process.env.JWT_SECRET);
-        const userId = decoded.userId;
+        // Get userId from middleware-populated req.user
+        const userId = req.user.userId;
 
-        // Determine the model based on the user's ID
+        // Get appropriate model based on user ID
         const UserModel = await getUserModel(userId);
         if (!UserModel) {
             return res.status(404).json({ msg: 'User model not found' });
@@ -131,10 +319,8 @@ const updatePersonalDetails = async (req, res) => {
             return res.status(404).json({ msg: 'User not found' });
         }
 
-        // Extract fields from request body
-        const { currentPassword, newPassword, ...updates } = req.body;
-
-        // Handle password update if provided
+        // Check for password update fields without hardcoding other fields
+        const { currentPassword, newPassword } = req.body;
         if (currentPassword && newPassword) {
             const isMatch = await bcrypt.compare(currentPassword, user.password);
             if (!isMatch) {
@@ -144,10 +330,10 @@ const updatePersonalDetails = async (req, res) => {
             user.password = await bcrypt.hash(newPassword, salt);
         }
 
-        // Update other fields (name, contact, profile picture, etc.)
-        Object.keys(updates).forEach((key) => {
-            if (updates[key]) {
-                user[key] = updates[key];
+        // Update all fields dynamically from req.body, excluding password fields
+        Object.entries(req.body).forEach(([key, value]) => {
+            if (key !== 'currentPassword' && key !== 'newPassword' && value !== undefined) {
+                user[key] = value;
             }
         });
 
@@ -162,7 +348,13 @@ const updatePersonalDetails = async (req, res) => {
         res.status(200).json({ msg: 'User details updated successfully', user });
     } catch (error) {
         console.error('Error updating user details:', error);
-        res.status(400).json({ msg: 'Error updating user details' });
+        if (error.name === 'CastError') {
+            return res.status(404).json({ msg: 'User not found' });
+        }
+        if (error.name === 'ValidationError') {
+            return res.status(400).json({ msg: 'Invalid input' });
+        }
+        return res.status(500).json({ msg: 'Error updating user details' });
     }
 };
 
@@ -412,8 +604,21 @@ const getAvailableSlotsForDoctor = async (req, res) => {
     const { doctor_id, day } = req.query;
 
     try {
+        const { userId, role } = req.user;
+
+        let doctorIdToFetch;
+
+        // If the role is Doctor, use their ID; otherwise, use the provided doctor_id
+        if (role === 'Doctor') {
+            doctorIdToFetch = userId;
+        } else if (role === 'Admin' && doctor_id) {
+            doctorIdToFetch = doctor_id;
+        } else {
+            return res.status(400).json({ msg: 'Doctor ID is required for Admins.' });
+        }
+
         // Fetch the doctor's details
-        const doctor = await Doctor.findById(doctor_id)
+        const doctor = await Doctor.findById(doctorIdToFetch)
             .populate('specializations.specializationId', 'name description');
 
         if (!doctor) {
@@ -421,7 +626,7 @@ const getAvailableSlotsForDoctor = async (req, res) => {
         }
 
         // Fetch breaks for the day
-        const breaks = await Break.find({ doctor: doctor_id, day });
+        const breaks = await Break.find({ doctor: doctorIdToFetch, day });
 
         // Helper function to check if a slot is affected by breaks
         const isSlotDuringBreak = (slotStart, slotEnd) => {
@@ -450,33 +655,24 @@ const getAvailableSlotsForDoctor = async (req, res) => {
                     // Check if the slot is during a break
                     const hasBreak = isSlotDuringBreak(slotStart, slotEnd);
 
-                    // Only push the slot if it is marked as available and is not affected by a break
-                    if (slot.isAvailable && !hasBreak) {
-                        updatedSlots.push({
-                            id: slot._id, // Assuming slot has an _id field
-                            start: slot.start,
-                            end: slot.end,
-                            isAvailable: true
-                        });
-                    }
-                }
-
-                // Only include schedules with available slots
-                if (updatedSlots.length > 0) {
-                    availableSchedules.push({
-                        scheduleId: schedule._id,
-                        slots: updatedSlots,
+                    // Push the slot with its availability status
+                    updatedSlots.push({
+                        id: slot._id, // Assuming slot has an _id field
+                        start: slot.start,
+                        end: slot.end,
+                        isAvailable: slot.isAvailable && !hasBreak // Check both conditions
                     });
                 }
+
+                // Include schedules regardless of available slots
+                availableSchedules.push({
+                    scheduleId: schedule._id,
+                    slots: updatedSlots,
+                });
             }
         }
-
-        // Return the available schedules or a message if none are available
-        if (availableSchedules.length > 0) {
-            return res.status(200).json({ availableSchedules });
-        } else {
-            return res.status(200).json({ msg: 'No available slots for the selected day.' });
-        }
+        // Return the available schedules with all slots
+        return res.status(200).json({ availableSchedules });
 
     } catch (error) {
         console.error('Error fetching available slots for doctor:', error);
@@ -485,14 +681,25 @@ const getAvailableSlotsForDoctor = async (req, res) => {
 };
 
 
-
-
 const getAvailableDaysForDoctor = async (req, res) => {
     const { doctor_id, specialization_id } = req.query;
 
     try {
+        const { userId, role } = req.user;
+
+        let doctorIdToFetch;
+
+        // If the role is Doctor, use their ID; otherwise, use the provided doctor_id
+        if (role === 'Doctor') {
+            doctorIdToFetch = userId;
+        } else if (role === 'Admin' && doctor_id) {
+            doctorIdToFetch = doctor_id;
+        } else {
+            return res.status(400).json({ msg: 'Doctor ID is required for Admins.' });
+        }
+
         // Fetch the doctor's details
-        const doctor = await Doctor.findById(doctor_id)
+        const doctor = await Doctor.findById(doctorIdToFetch)
             .populate('specializations.specializationId', 'name description');
 
         if (!doctor) {
@@ -509,7 +716,7 @@ const getAvailableDaysForDoctor = async (req, res) => {
         }
 
         // Fetch breaks for the doctor (for all days)
-        const breaks = await Break.find({ doctor: doctor._id });
+        const breaks = await Break.find({ doctor: doctorIdToFetch });
 
         // Helper function to check if a slot is during a break
         const isSlotDuringBreak = (slotStart, slotEnd, day) => {
@@ -583,10 +790,10 @@ const getPatients = async (req, res) => {
 };
 
 const placeAppointment = async (req, res) => {
-    const { specialization_id, day, schedule_id, selectedSlot } = req.body;
+    const { specialization_id, day, schedule_id, selectedSlot, patient_id } = req.body;
     
-    const userId = req.user._id; // Get user ID from the token
     const userRole = req.user.role; // Get user role from the token
+    const doctorId = req.user.userId; // Get logged-in doctor ID from token
 
     try {
         let doctorId;
@@ -594,6 +801,9 @@ const placeAppointment = async (req, res) => {
 
         if (userRole === 'Doctor') {
             doctorId = userId; // Use the logged-in doctor's ID
+            if (!patient_id) {
+                return res.status(400).json({ msg: 'Patient ID is required for Doctor' });
+            }
         } else if (userRole === 'Admin') {
             doctorId = req.body.doctor_id;
             if (!doctorId) {
@@ -603,49 +813,48 @@ const placeAppointment = async (req, res) => {
             if (!patient_id) {
                 return res.status(400).json({ msg: 'Patient ID is required for Admin' });
             }
-        } else if (userRole === 'Patient') {
-            return res.status(403).json({ msg: 'Patients cannot place appointments for themselves directly.' });
         } else {
-            return res.status(400).json({ msg: 'Invalid user role' });
+            return res.status(403).json({ msg: 'Only Admin and Doctors can place appointments.' });
         }
 
         const specializationId = new mongoose.Types.ObjectId(specialization_id);
         const scheduleId = new mongoose.Types.ObjectId(schedule_id);
-        const slotId = selectedSlot.id; // Use slot ID
+        const slotId = selectedSlot.id;
 
-        // Find the doctor based on the doctorId
-        const doctor = await Doctor.findById(doctorId)
-            .populate('specializations.specializationId', 'name description');
+        // Step 1: Verify if the patient has a valid payment
+        const invoice = await Invoice.findOne({
+            patientId: patient_id,
+            doctorId: doctorId,
+            appointmentId: null,
+            paymentStatus: ['Completed', 'Partial'], 
+        }).sort({ createdAt: -1 });
 
+        if (!invoice) {
+            return res.status(400).json({ msg: 'Payment required before placing an appointment' });
+        }
+
+        // Step 2: Find the doctor based on the doctorId
+        const doctor = await Doctor.findById(doctorId).populate('specializations.specializationId', 'name description');
         if (!doctor) {
             return res.status(404).json({ msg: 'Doctor not found' });
         }
 
-        const specialization = doctor.specializations.find(spec =>
-            spec.specializationId.equals(specializationId)
-        );
-
+        const specialization = doctor.specializations.find(spec => spec.specializationId.equals(specializationId));
         if (!specialization) {
             return res.status(400).json({ msg: 'Doctor does not have the required specialization' });
         }
 
-        const schedule = specialization.schedules.find(sch => 
-            sch._id.equals(scheduleId) && sch.day === day
-        );
-
+        const schedule = specialization.schedules.find(sch => sch._id.equals(scheduleId) && sch.day === day);
         if (!schedule) {
             return res.status(400).json({ msg: 'Invalid schedule ID or doctor does not work on the selected day.' });
         }
 
-        const slot = schedule.slots.find(slot =>
-            slot._id.toString() === slotId.toString()
-        );
-
+        const slot = schedule.slots.find(slot => slot._id.toString() === slotId.toString());
         if (!slot || !slot.isAvailable) {
             return res.status(400).json({ msg: 'Selected slot is no longer available.' });
         }
 
-        // Fetch existing appointments that overlap with the selected slot
+        // Step 3: Fetch existing appointments that overlap with the selected slot
         const overlappingAppointments = await Appointment.find({
             doctor: doctorId,
             day,
@@ -669,20 +878,20 @@ const placeAppointment = async (req, res) => {
             return res.status(400).json({ msg: 'Selected slot is no longer available due to overlapping appointment or break.' });
         }
 
-        // Create the new appointment with slotId
+        // Step 4: Create the new appointment with slotId
         const newAppointment = new Appointment({
             doctor: doctorId,
-            patient: userRole === 'Admin' ? patient_id : userId,
+            patient: patient_id,
             day,
-            timeSlot: { id: slotId, start: slot.start, end: slot.end },  // Use start and end from the slot
+            timeSlot: { id: slotId, start: slot.start, end: slot.end },
             specialization: specializationId,
-            schedule: scheduleId
- // Save the slotId here
+            schedule: scheduleId,
+            paymentStatus: invoice.paymentStatus // Save the payment status from the invoice
         });
 
         await newAppointment.save();
 
-        // Update the slot's availability
+        // Step 5: Update the slot's availability
         const updateResult = await Doctor.updateOne(
             { _id: doctorId, 'specializations.schedules._id': scheduleId },
             { 
@@ -700,6 +909,12 @@ const placeAppointment = async (req, res) => {
             return res.status(400).json({ msg: 'Failed to update slot availability.' });
         }
 
+        // Step 6: Update the invoice with appointmentId
+        await Invoice.findOneAndUpdate(
+            { _id: invoice._id },
+            { appointmentId: newAppointment._id }
+        );
+
         res.status(201).json({ msg: 'Appointment placed successfully', appointment: newAppointment });
 
     } catch (error) {
@@ -711,73 +926,66 @@ const placeAppointment = async (req, res) => {
 
 
 const updateAppointment = async (req, res) => {
-    const { appointmentId, doctor_id, schedule_id, selectedSlot, day } = req.body; // Add day from request body
-    const userId = req.user._id;
+    const { appointmentId, schedule_id, selectedSlot, day, doctorId } = req.body; // Added doctorId
+    const userId = req.user.userId; // Use req.user._id instead of req.user.userId
     const userRole = req.user.role;
 
-    // Check if selectedSlot is valid
+    console.log('User ID:', userId, 'User Role:', userRole);
+
     if (!selectedSlot || !selectedSlot.id) {
         return res.status(400).json({ msg: 'Invalid slot data. Please provide valid slot information.' });
     }
 
-    // Ensure a valid day is provided
-    if (!day) {
-        return res.status(400).json({ msg: 'Please provide a valid day of the week.' });
-    }
-
     try {
+        // Find the appointment
         const appointment = await Appointment.findById(appointmentId);
         if (!appointment) {
             return res.status(404).json({ msg: 'Appointment not found' });
         }
 
-        // Ensure the user has permission to update this appointment
-        if (userRole === 'Patient' && appointment.patient.toString() !== userId.toString()) {
-            return res.status(403).json({ msg: 'Patients can only update their own appointments.' });
-        }
+        console.log('Appointment:', appointment);
 
-        const doctorId = doctor_id || appointment.doctor;
         const previousSlotId = appointment.timeSlot.id;
         const previousScheduleId = appointment.schedule;
-
-        const scheduleId = new mongoose.Types.ObjectId(schedule_id);
         const slotId = selectedSlot.id;
+        const scheduleId = new mongoose.Types.ObjectId(schedule_id);
 
-        // Find the doctor
-        const doctor = await Doctor.findById(doctorId)
-            .populate('specializations.specializationId', 'name description');
+        // If the user is a doctor, ensure they can only update their own appointments
+        if (userRole === 'Doctor') {
+            if (appointment.doctor.toString() !== userId.toString()) {
+                return res.status(403).json({ msg: 'Doctors can only update their own appointments.' });
+            }
+        }
 
+        // Fetch the doctor based on the role
+        const doctor = userRole === 'Admin' && doctorId
+            ? await Doctor.findById(doctorId).populate('specializations.specializationId', 'name description')
+            : await Doctor.findById(appointment.doctor).populate('specializations.specializationId', 'name description');
+        
         if (!doctor) {
             return res.status(404).json({ msg: 'Doctor not found' });
         }
 
-        const specialization = doctor.specializations.find(spec =>
-            spec.specializationId.equals(appointment.specialization)
-        );
+        console.log('Doctor:', doctor);
 
-        if (!specialization) {
-            return res.status(400).json({ msg: 'Doctor does not have the required specialization.' });
-        }
-
-        // Find the schedule for the specified day
-        const schedule = specialization.schedules.find(sch =>
-            sch._id.equals(scheduleId) && sch.day === day
-        );
+        // Find the schedule based on the provided schedule_id and day (if given)
+        const schedule = doctor.specializations
+            .flatMap(spec => spec.schedules)
+            .find(sch => sch._id.equals(scheduleId) && (!day || sch.day === day));
 
         if (!schedule) {
-            return res.status(400).json({ msg: 'Invalid schedule ID or doctor does not work on the selected day.' });
+            return res.status(400).json({ msg: `Invalid schedule ID or doctor does not work on the selected day (${day}).` });
         }
 
+        // Find the new slot and check if it's available
         const newSlot = schedule.slots.find(slot => slot._id.toString() === slotId.toString());
-
         if (!newSlot || !newSlot.isAvailable) {
             return res.status(400).json({ msg: 'Selected slot is no longer available.' });
         }
 
-        // Fetch overlapping appointments and breaks for the same day
+        // Check for overlapping appointments or breaks
         const overlappingAppointments = await Appointment.find({
-            doctor: doctorId,
-            day: day, // Use the day instead of date
+            doctor: doctor._id,
             schedule: scheduleId,
             $and: [
                 { 'timeSlot.end': { $gt: newSlot.start } },
@@ -786,8 +994,8 @@ const updateAppointment = async (req, res) => {
         });
 
         const overlappingBreaks = await Break.find({
-            doctor: doctorId,
-            day: day, // Use the day of the week
+            doctor: doctor._id,
+            day: schedule.day,
             $and: [
                 { endTime: { $gt: newSlot.start } },
                 { startTime: { $lt: newSlot.end } }
@@ -799,95 +1007,115 @@ const updateAppointment = async (req, res) => {
             return res.status(400).json({ msg: 'Selected slot is no longer available due to overlapping appointment or break.' });
         }
 
-        // Update the appointment with the new day and slot
+        // Update appointment details
+        appointment.doctor = doctor._id; // Allow changing doctor
         appointment.schedule = scheduleId;
-        appointment.timeSlot = { id: slotId };
-        appointment.day = day; // Update the day of the week
-        if (doctor_id) {
-            appointment.doctor = doctorId;
-        }
+        appointment.timeSlot = { id: slotId, start: newSlot.start, end: newSlot.end };
+        appointment.day = schedule.day;
 
+        // Save the appointment
         await appointment.save();
 
-        // Update the new slot's availability to false
+        // Update the slot availability
         await Doctor.updateOne(
-            { _id: doctorId, 'specializations.schedules._id': scheduleId },
-            {
-                $set: { 'specializations.$.schedules.$[elem].slots.$[slot].isAvailable': false }
-            },
-            {
-                arrayFilters: [
-                    { 'elem._id': scheduleId },
-                    { 'slot._id': slotId }
-                ]
-            }
+            { _id: doctor._id, 'specializations.schedules._id': scheduleId },
+            { $set: { 'specializations.$.schedules.$[elem].slots.$[slot].isAvailable': false } },
+            { arrayFilters: [{ 'elem._id': scheduleId }, { 'slot._id': slotId }] }
         );
 
-        // Update the previous slot's availability to true
+        // Restore the availability of the previous slot
         await Doctor.updateOne(
-            { _id: doctorId, 'specializations.schedules._id': previousScheduleId },
-            {
-                $set: { 'specializations.$.schedules.$[elem].slots.$[slot].isAvailable': true }
-            },
-            {
-                arrayFilters: [
-                    { 'elem._id': previousScheduleId },
-                    { 'slot._id': previousSlotId }
-                ]
-            }
+            { _id: doctor._id, 'specializations.schedules._id': previousScheduleId },
+            { $set: { 'specializations.$.schedules.$[elem].slots.$[slot].isAvailable': true } },
+            { arrayFilters: [{ 'elem._id': previousScheduleId }, { 'slot._id': previousSlotId }] }
         );
 
-        res.status(200).json({ msg: 'Appointment updated successfully', appointment });
+        return res.status(200).json({ msg: 'Appointment updated successfully', appointment });
 
     } catch (error) {
         console.error('Error updating appointment:', error);
-        res.status(500).json({ msg: 'Server error', error: error.message });
+        return res.status(500).json({ msg: 'Server error', error: error.message });
     }
 };
 
 
 
 const getAppointments = async (req, res) => {
-    const userId = req.user._id; // Get user ID from the token
-    const userRole = req.user.role; // Get user role from the token
-
-    const { doctorId, patientId } = req.query; // No date in query
+    const userId = req.user.userId;  // Get user ID from the token
+    const userRole = req.user.role;  // Get user role from the token
+    const { doctorId, patientId, day, appointmentId } = req.query;  // Get query parameters
 
     try {
         let query = {};
 
         // If the user is a Doctor
         if (userRole === 'Doctor') {
-            query.doctor = userId; // Doctor can only see their own appointments
-        }
-        // If the user is an Admin
-        else if (userRole === 'Admin') {
-            if (!doctorId) {
-                return res.status(400).json({ msg: 'Admin must select a doctor to view appointments.' });
-            }
-            query.doctor = doctorId; // Admin must specify doctor
+            query.doctor = userId;  // Doctor can only see their own appointments
 
             // Optional patient filter
             if (patientId) {
-                query.patient = patientId; // Admin can filter by patient if provided
+                if (!mongoose.Types.ObjectId.isValid(patientId)) {
+                    return res.status(400).json({ message: 'Invalid patient ID.' });
+                }
+                query.patient = patientId;  // Doctor can filter by patient if provided
+            }
+        }
+        // If the user is an Admin
+        else if (userRole === 'Admin') {
+            if (doctorId) {
+                if (!mongoose.Types.ObjectId.isValid(doctorId)) {
+                    return res.status(400).json({ message: 'Invalid doctor ID.' });
+                }
+                query.doctor = doctorId;  // Admin can specify doctor
+            }
+
+            // Optional patient filter
+            if (patientId) {
+                if (!mongoose.Types.ObjectId.isValid(patientId)) {
+                    return res.status(400).json({ message: 'Invalid patient ID.' });
+                }
+                query.patient = patientId;  // Admin can filter by patient if provided
             }
         } else {
-            return res.status(403).json({ msg: 'Only doctors and admins can view appointments.' });
+            return res.status(403).json({ message: 'Only doctors and admins can view appointments.' });
+        }
+
+        // Optional: Filter by appointmentId from params if provided
+        if (appointmentId) {
+            if (!mongoose.Types.ObjectId.isValid(appointmentId)) {
+                return res.status(400).json({ message: 'Invalid appointment ID.' });
+            }
+            query._id = appointmentId;  // Use appointment ID for a specific appointment
+        }
+
+        // Optional: Filter by day if provided
+        if (day) {
+            const daysOfWeek = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+            if (daysOfWeek.includes(day)) {
+                query.day = day;  // Filter by the specified day
+            } else {
+                return res.status(400).json({ message: 'Invalid day provided. Please use a valid day of the week.' });
+            }
         }
 
         // Fetch appointments based on the query
         const appointments = await Appointment.find(query)
-            .populate('doctor', 'name') // Populate doctor details
-            .populate('patient', 'name') // Populate patient details
-            .populate('specialization', 'name') // Populate specialization details
-            .sort({ day: 1, 'timeSlot.start': 1 }); // Sort by day and start time
+            .populate('doctor', 'name')  // Populate doctor details (only name)
+            .populate('patient')  // Populate the entire patient object
+            .populate('specialization', 'name')  // Populate specialization details (only name)
+            .select('day timeSlot status')  // Select the required fields
+            .sort({ day: 1, 'timeSlot.start': 1 });  // Sort by day and start time
 
-        res.status(200).json({
-            appointments,
-        });
+        // Check if appointments exist
+        if (!appointments.length) {
+            return res.status(404).json({ message: 'No appointments found.' });
+        }
+
+        // Return appointments with fully populated patient details
+        res.status(200).json(appointments);
     } catch (error) {
         console.error('Error fetching appointments:', error);
-        res.status(500).json({ msg: 'Server error', error: error.message });
+        res.status(500).json({ message: 'Server error', error: error.message });
     }
 };
 
@@ -895,7 +1123,7 @@ const getAppointments = async (req, res) => {
 
 const deleteAppointment = async (req, res) => {
     const { appointmentId } = req.params; // Appointment ID from request parameters
-    const userId = req.user._id; // Get user ID from the token
+    const userId = req.user.userId; // Get user ID from the token
     const userRole = req.user.role; // Get user role from the token
 
     try {
@@ -910,9 +1138,13 @@ const deleteAppointment = async (req, res) => {
             return res.status(403).json({ msg: 'Patients can only delete their own appointments.' });
         }
 
-        // Admin can delete any appointment
         if (userRole === 'Doctor' && appointment.doctor.toString() !== userId.toString()) {
             return res.status(403).json({ msg: 'Doctors can only delete their own appointments.' });
+        }
+
+        // Optional: If you want Admins to be able to delete any appointment
+        if (userRole !== 'Admin' && userRole !== 'Doctor' && userRole !== 'Patient') {
+            return res.status(403).json({ msg: 'Unauthorized to delete appointment.' });
         }
 
         const doctorId = appointment.doctor;
@@ -936,14 +1168,14 @@ const deleteAppointment = async (req, res) => {
         // Delete the appointment
         await Appointment.findByIdAndDelete(appointmentId);
 
-
-        res.status(200).json({ msg: 'Appointment deleted successfully' });
+        return res.status(200).json({ msg: 'Appointment deleted successfully' });
 
     } catch (error) {
         console.error('Error deleting appointment:', error);
         res.status(500).json({ msg: 'Server error', error: error.message });
     }
 };
+
 
 
 
@@ -1122,31 +1354,38 @@ const manageSchedules = async (req, res) => {
     }
 };
 
+
 const updateSlotAvailability = async (doctorId, day, breakStartTime, breakEndTime, isAvailable) => {
+    // Fetch the doctor by ID
     const doctor = await Doctor.findById(doctorId);
     if (!doctor) throw new Error('Doctor not found');
 
+    // Iterate through each specialization of the doctor
     for (const specialization of doctor.specializations) {
+        // Iterate through each schedule of the specialization
         for (const schedule of specialization.schedules) {
             if (schedule.day === day) {
+                // Update slots based on break times
                 schedule.slots = schedule.slots.map(slot => {
                     const slotStart = new Date(`1970-01-01T${slot.start}:00Z`);
                     const slotEnd = new Date(`1970-01-01T${slot.end}:00Z`);
                     const breakStart = new Date(`1970-01-01T${breakStartTime}:00Z`);
                     const breakEnd = new Date(`1970-01-01T${breakEndTime}:00Z`);
-                    
+
+                    // Check if the slot overlaps with the break time
                     if (slotStart < breakEnd && slotEnd > breakStart) {
-                        return { ...slot, isAvailable };
+                        return { ...slot, isAvailable }; // Update availability
                     }
                     return slot;
                 });
 
-                // Update maxAppointments based on new slots
+                // Update maxAppointments based on new slots availability
                 schedule.maxAppointments = schedule.slots.filter(slot => slot.isAvailable).length;
             }
         }
     }
 
+    // Save the updates to the doctor's record
     await doctor.save();
 };
 
@@ -1165,6 +1404,21 @@ const manageBreaks = async (req, res) => {
                 const doctor = await Doctor.findById(doctor_id);
                 if (!doctor) {
                     return res.status(404).json({ msg: 'Doctor not found' });
+                }
+
+                // Check for overlapping appointments
+                const existingAppointments = await Appointment.find({
+                    doctor: doctor_id,
+                    day,
+                    $or: [
+                        { startTime: { $lt: endTime, $gt: startTime } },
+                        { endTime: { $lt: endTime, $gt: startTime } },
+                        { startTime: { $lte: startTime }, endTime: { $gte: endTime } }
+                    ]
+                });
+
+                if (existingAppointments.length > 0) {
+                    return res.status(400).json({ msg: 'Cannot create break, appointments scheduled during this time' });
                 }
 
                 // Check for overlapping breaks
@@ -1196,46 +1450,53 @@ const manageBreaks = async (req, res) => {
 
                 return res.status(201).json({ msg: 'Break created successfully', break: newBreak });
 
-            case 'GET': // Search for breaks
-                if (!doctor_id || !day) {
-                    return res.status(400).json({ msg: 'Doctor ID and day are required for searching breaks' });
-                }
-
-                const breaks = await Break.find({ doctor: doctor_id, day });
-                return res.status(200).json(breaks);
-
             case 'PUT': // Update a break
                 if (!break_id || !startTime || !endTime) {
                     return res.status(400).json({ msg: 'Missing required fields for updating a break' });
                 }
-            
+
                 const updatedBreak = await Break.findById(break_id);
                 if (!updatedBreak) {
                     return res.status(404).json({ msg: 'Break not found' });
                 }
-            
+
+                // Check for overlapping appointments
+                const updatedAppointments = await Appointment.find({
+                    doctor: doctor_id,
+                    day,
+                    $or: [
+                        { startTime: { $lt: endTime, $gt: startTime } },
+                        { endTime: { $lt: endTime, $gt: startTime } },
+                        { startTime: { $lte: startTime }, endTime: { $gte: endTime } }
+                    ]
+                });
+
+                if (updatedAppointments.length > 0) {
+                    return res.status(400).json({ msg: 'Cannot update break, appointments scheduled during this time' });
+                }
+
                 // Check for overlapping breaks with the updated break
                 const otherBreaks = await Break.find({ doctor: doctor_id, day }).where('_id').ne(break_id);
                 const updatedBreakStart = new Date(`1970-01-01T${startTime}:00Z`);
                 const updatedBreakEnd = new Date(`1970-01-01T${endTime}:00Z`);
-            
+
                 const isUpdateOverlap = otherBreaks.some(brk => {
                     const existingBreakStart = new Date(`1970-01-01T${brk.startTime}:00Z`);
                     const existingBreakEnd = new Date(`1970-01-01T${brk.endTime}:00Z`);
                     return updatedBreakEnd > existingBreakStart && updatedBreakStart < existingBreakEnd;
                 });
-            
+
                 if (isUpdateOverlap) {
                     return res.status(400).json({ msg: 'Updated break overlaps with existing breaks' });
                 }
-            
+
                 updatedBreak.startTime = startTime;
                 updatedBreak.endTime = endTime;
                 await updatedBreak.save();
 
                 // Update Doctor document to reflect the change
                 await updateSlotAvailability(doctor_id, day, startTime, endTime, false);
-            
+
                 return res.status(200).json({ msg: 'Break updated successfully', break: updatedBreak });
 
             case 'DELETE': // Delete a break
@@ -1264,9 +1525,699 @@ const manageBreaks = async (req, res) => {
 };
 
 
+/*
+// Main payment function
+const makePayment = async (req, res) => {
+    const { doctorId, patientId, amountPaid, paymentMethod, feeType, customerDetails, paymentDetails } = req.body;
+    const userRole = req.user.role; // Assuming user role is attached to the request
+    const isAdminOrStaff = userRole === 'Admin' || userRole === 'Staff';
+    const isPatient = userRole === 'Patient';
+    
+    try {
+      if (isAdminOrStaff && (!doctorId || !patientId)) {
+        return res.status(400).json({ msg: 'Doctor ID and Patient ID are required for admin or staff payments.' });
+      }
+  
+      const actualPatientId = isPatient ? req.user.userId : patientId;
+      const doctor = await Doctor.findById(doctorId);
+      if (!doctor) {
+        return res.status(404).json({ msg: 'Doctor not found' });
+      }
+      
+      const amount = parseFloat(amountPaid);
+  
+      if (paymentMethod === 'Card' && isPatient) {
+        const paymentResult = await processCardPayment(amount, customerDetails, paymentDetails);
+        if (paymentResult.status !== 'success') {
+          return res.status(400).json({ msg: 'Card payment failed', error: paymentResult.error });
+        }
+        
+        return res.status(200).json({
+          msg: "Redirect to PayHere for card payment.",
+          payment_url: paymentResult.payment_url
+        });
+      } else if (!isAdminOrStaff && paymentMethod !== 'Card') {
+        return res.status(400).json({ msg: 'Only patients can pay with cards.' });
+      }
+  
+      if (feeType === 'Advance' && amount !== doctor.advanceFee) {
+        return res.status(400).json({ msg: `Advance payment must be exactly ${doctor.advanceFee}.` });
+      }
+  
+      if (feeType === 'Full' && amount !== doctor.fullFee) {
+        return res.status(400).json({ msg: `Full payment must be exactly ${doctor.fullFee}.` });
+      }
+  
+      const invoice = new Invoice({
+        patientId: actualPatientId,
+        doctorId,
+        amountPaid: amount,
+        paymentMethod,
+        feeType,
+        paymentStatus: feeType === 'Advance' ? 'Partial' : 'Completed',
+        paymentDate: new Date()
+      });
+      await invoice.save();
+  
+      res.status(201).json({
+        msg: `${feeType} payment of ${amount} via ${paymentMethod} is recorded.`,
+        invoice
+      });
+  
+    } catch (error) {
+      console.error('Error making payment:', error);
+      res.status(500).json({ msg: 'Server error', error: error.message });
+    }
+  };
+*/
+
+const makePayment = async (req, res) => {
+    const { doctorId, patientId, amountPaid, paymentMethod, feeType, customerDetails } = req.body;
+    const userRole = req.user.role; // Assuming user role is attached to the request
+    const isAdminOrStaff = userRole === 'Admin' || userRole === 'Staff';
+    const isPatient = userRole === 'Patient';
+    
+    try {
+        // If the user is a patient, they must provide the doctorId and patientId
+        if (isPatient && !doctorId) {
+            return res.status(400).json({ msg: 'Doctor ID is required for patient payments.' });
+        }
+
+        // If the user is admin or staff, doctorId and patientId should be provided
+        if (isAdminOrStaff && (!doctorId || !patientId)) {
+            return res.status(400).json({ msg: 'Doctor ID and Patient ID are required for admin or staff payments.' });
+        }
+
+        // The actual patientId is determined based on the user role
+        const actualPatientId = isPatient ? req.user.userId : patientId;
+
+        // Retrieve the doctor from the database
+        const doctor = await Doctor.findById(doctorId);
+        if (!doctor) {
+            return res.status(404).json({ msg: 'Doctor not found' });
+        }
+        
+        const amount = parseFloat(amountPaid);
+
+        // Handle card payment for patients
+        if (paymentMethod === 'Card' && isPatient) {
+            const orderId = uuidv4();
+            const paymentResult = await processCardPayment(amount, customerDetails, orderId);
+            console.log('PayHere Payment Result:', paymentResult); // Log to check the details
+            if (paymentResult.status !== 'success') {
+                return res.status(400).json({ msg: 'Card payment failed', error: paymentResult.error });
+            }
+
+            // Return the HTML form to the frontend
+            return res.status(200).send(paymentResult.paymentHtml); 
+        } else if (!isPatient && paymentMethod === 'Card') {
+            return res.status(400).json({ msg: 'Only patients can pay with cards.' });
+        }
+
+        // Validate amounts for advance/full payments
+        if (feeType === 'Advance' && amount !== doctor.advanceFee) {
+            return res.status(400).json({ msg: `Advance payment must be exactly ${doctor.advanceFee}.` });
+        }
+
+        if (feeType === 'Full' && amount !== doctor.fullFee) {
+            return res.status(400).json({ msg: `Full payment must be exactly ${doctor.fullFee}.` });
+        }
+
+        // Create and save the invoice
+        const invoice = new Invoice({
+            patientId: actualPatientId,
+            doctorId,
+            amountPaid: amount,
+            paymentMethod,
+            feeType,
+            paymentStatus: feeType === 'Advance' ? 'Partial' : 'Completed',
+            paymentDate: new Date()
+        });
+        await invoice.save();
+
+        res.status(201).json({
+            msg: `${feeType} payment of ${amount} via ${paymentMethod} is recorded.`,
+            invoice
+        });
+
+    } catch (error) {
+        console.error('Error making payment:', error);
+        res.status(500).json({ msg: 'Server error', error: error.message });
+    }
+};
+
+
+const handlePaymentNotification = async (req, res) => {
+    const { merchant_id, order_id, payment_id, status_code, md5sig, amount, currency } = req.body;
+
+    // Verify merchant ID
+    if (merchant_id !== process.env.PAYHERE_MERCHANT_ID) {
+        return res.status(400).json({ msg: 'Invalid merchant ID' });
+    }
+
+    // Verify the hash signature (security check)
+    const generatedMd5sig = md5(process.env.PAYHERE_MERCHANT_ID + order_id + amount + currency + process.env.PAYHERE_MERCHANT_SECRET).toString().toUpperCase();
+    if (md5sig !== generatedMd5sig) {
+        return res.status(400).json({ msg: 'Invalid hash signature' });
+    }
+
+    // Handle payment status
+    if (status_code === '2') { // '2' indicates success
+        // Update payment status in your database
+        await Invoice.updateOne({ orderId: order_id }, { paymentStatus: 'Completed', paymentId: payment_id });
+        res.status(200).json({ msg: 'Payment verified and recorded.' });
+    } else {
+        res.status(400).json({ msg: 'Payment failed or was incomplete.' });
+    }
+};
+
+
+
+
+
+
+
+
+
+/*
+
+const makePayments = async (req, res) => {
+    const { doctorId, amountPaid, paymentMethod, feeType, paymentDetails } = req.body;
+    const userId = req.user.userId; // Patient ID
+
+    try {
+        // Validate doctor exists
+        const doctor = await Doctor.findById(doctorId);
+        if (!doctor) {
+            return res.status(404).json({ msg: 'Doctor not found' });
+        }
+
+        const totalFee = doctor.fullFee; // Full fee from doctor's details
+
+        if (feeType === 'Advance') {
+            // Handle advance payment scenario
+            const advanceInvoice = new Invoice({
+                userId,
+                doctorId,
+                amountPaid, // Advance amount
+                paymentMethod,
+                feeType: 'Advance',
+                paymentStatus: 'Partial', // Advance payments marked as partial
+                paymentDate: new Date()
+            });
+        
+            await advanceInvoice.save();
+        
+            return res.status(201).json({
+                msg: `Advance payment of ${amountPaid} via ${paymentMethod} is recorded.`,
+                invoice: advanceInvoice
+            });
+        } else if (feeType === 'Full') {
+            // If paying full amount, check for an existing advance payment
+            const advanceInvoice = await Invoice.findOne({
+                userId,
+                doctorId,
+                feeType: 'Advance',
+                paymentStatus: 'Partial', // Check for Partial to see if there's already an advance
+            });
+        
+            if (!advanceInvoice) {
+                return res.status(400).json({ msg: 'No advance payment found for this patient and doctor.' });
+            }
+        
+            let totalFee = doctor.fullFee; // Full fee from doctor's details
+            let remainingBalance = totalFee - advanceInvoice.amountPaid; // Calculate remaining balance
+        
+            // Check if the amount paid is sufficient to cover the remaining balance
+            if (amountPaid < remainingBalance) {
+                return res.status(400).json({ msg: 'Amount paid is less than the remaining balance.' });
+            }
+        
+            // Handle payment based on method (Cash/Card)
+            let paymentStatus = 'Pending'; // Default payment status
+        
+            if (paymentMethod === 'Card') {
+                // Replace with actual card payment processing
+                const paymentSuccessful = await processCardPayment(amountPaid, req.user, paymentDetails); 
+        
+                if (!paymentSuccessful) {
+                    return res.status(400).json({ msg: 'Payment failed' });
+                }
+                paymentStatus = 'Completed'; // Update payment status only on success
+            } else if (paymentMethod === 'Cash') {
+                // Payment status remains pending for cash until verified manually
+                paymentStatus = 'Pending';
+            } else {
+                return res.status(400).json({ msg: 'Invalid payment method' });
+            }
+        
+            // Update the existing advance invoice with the new amount, fee type, and status
+            advanceInvoice.amountPaid += remainingBalance; // Update amount paid with the remaining balance
+            advanceInvoice.paymentStatus = (advanceInvoice.amountPaid >= totalFee) ? 'Completed' : 'Partial'; // Update payment status
+            advanceInvoice.paymentMethod = paymentMethod; // Update payment method if needed
+            advanceInvoice.paymentDate = new Date(); // Update payment date
+            advanceInvoice.feeType = 'Full'; // Update fee type to Full
+        
+            await advanceInvoice.save(); // Save the updated invoice
+        
+            return res.status(200).json({
+                msg: `Payment of ${remainingBalance} via ${paymentMethod} ${advanceInvoice.paymentStatus}.`,
+                invoice: advanceInvoice
+            });
+    
+        } else {
+            return res.status(400).json({ msg: 'Invalid fee type' });
+        }
+
+    } catch (error) {
+        console.error('Error making payment:', error);
+        res.status(500).json({ msg: 'Server error', error: error.message });
+    }
+};
+*/
+
+
+// GET invoices with null appointmentId for specific doctor or patient
+const fetchInvoices = async (req, res) => {
+    const userRole = req.user.role;
+    const userId = req.user.userId;
+    const { doctor_id, patient_id } = req.query;
+
+    try {
+        const query = {
+            appointmentId: null,  // Fetch invoices where the appointment is not yet placed
+        };
+
+        // Role-based filtering and conditions
+        if (userRole === 'Doctor') {
+            // Doctor can only view their own invoices or specific patient invoices
+            query.doctorId = userId;
+
+            if (patient_id) {
+                query.patientId = patient_id;  // Optional filter for patient if provided
+            }
+        } else if (userRole === 'Admin') {
+            // Admin can filter by both doctor and patient IDs, or just patient ID
+            if (doctor_id) {
+                query.doctorId = doctor_id;
+            }
+            if (patient_id) {
+                query.patientId = patient_id;
+            }
+        } else if (userRole === 'Patient') {
+            // Patients can only view their own invoices
+            query.patientId = userId;
+        } else {
+            return res.status(403).json({ msg: 'Only Admin, Doctors, and Patients can view invoices.' });
+        }
+
+        // Fetch the invoices based on the constructed query
+        const invoices = await Invoice.find(query).sort({ createdAt: -1 });
+
+        if (invoices.length === 0) {
+            return res.status(404).json({ msg: 'No invoices found.' });
+        }
+
+        res.status(200).json({ msg: 'Invoices retrieved successfully', invoices });
+
+    } catch (error) {
+        console.error('Error fetching invoices:', error);
+        res.status(500).json({ msg: 'Server error', error: error.message });
+    }
+};
+
+
+
+const checkBalance = async (req, res) => {
+    const userId = req.user.userId; // ID of the user making the request
+    const userRole = req.user.role; // Role of the user (Admin, Staff, Patient)
+    const { doctorId, patientId, invoiceId } = req.query; // Doctor ID, Patient ID, and Invoice ID from query params
+
+    try {
+        // Check if the user has the necessary role
+        if (userRole !== 'Admin' && userRole !== 'Staff' && userRole !== 'Patient') {
+            return res.status(403).json({ msg: 'Access denied. Only Admin, Staff, and Patients can access this information.' });
+        }
+
+        // Determine patientId based on user role
+        let actualPatientId;
+        if (userRole === 'Patient') {
+            actualPatientId = userId; // Patient uses their own ID
+        } else {
+            // Admin and Staff should provide both doctorId and patientId if invoiceId is not provided
+            if (!invoiceId && (!doctorId || !patientId)) {
+                return res.status(400).json({ msg: 'Either invoiceId or both doctorId and patientId are required for Admin and Staff.' });
+            }
+            actualPatientId = patientId;
+        }
+
+        // Check if invoiceId is provided and find by invoiceId
+        let advanceInvoice;
+        if (invoiceId) {
+            advanceInvoice = await Invoice.findById(invoiceId);
+            if (!advanceInvoice) {
+                return res.status(404).json({ msg: 'Invoice not found' });
+            }
+
+            // Ensure the invoice belongs to the correct patient and doctor and has a 'Partial' payment status
+            if (advanceInvoice.patientId.toString() !== actualPatientId || advanceInvoice.paymentStatus !== 'Partial') {
+                return res.status(400).json({ msg: 'Invoice does not belong to this patient or is not a partial payment.' });
+            }
+
+        } else {
+            // Validate doctor existence if invoiceId is not provided
+            const doctor = await Doctor.findById(doctorId);
+            if (!doctor) {
+                return res.status(404).json({ msg: 'Doctor not found' });
+            }
+            // Find the latest advance invoice with 'Partial' payment status for the patient and doctor
+            advanceInvoice = await Invoice.findOne({
+                patientId: actualPatientId,
+                doctorId,
+                feeType: 'Advance',
+                paymentStatus: 'Partial'
+            }).sort({ paymentDate: -1 }); // Sort by paymentDate in descending order to get the latest
+
+            if (!advanceInvoice) {
+                return res.status(404).json({ msg: 'No unpaid advance payment found for this patient and doctor.' });
+            }
+        }
+        // Calculate the remaining balance
+        const doctor = await Doctor.findById(advanceInvoice.doctorId);
+        const totalFee = doctor.fullFee;
+        const amountPaid = advanceInvoice.amountPaid;
+        const remainingBalance = totalFee - amountPaid;
+
+        // Return the remaining balance and latest invoice details
+        return res.status(200).json({
+            msg: `The remaining balance is ${remainingBalance}.`,
+            balance: remainingBalance,
+            totalFee,
+            amountPaid,
+            advanceInvoice
+        });
+    } catch (error) {
+        console.error('Error retrieving balance:', error);
+        return res.status(500).json({ msg: 'Server error', error: error.message });
+    }
+};
+
+
+const payBalance = async (req, res) => {
+    const userId = req.user.userId; // ID of the user making the request
+    const userRole = req.user.role; // Role of the user (Admin, Staff, Patient)
+    const { paymentMethod } = req.body; // Payment method from the request body
+    const { doctorId, patientId, invoiceId } = req.query; // Get doctorId, patientId, and invoiceId from query
+
+    try {
+        // Check if the user is either Admin, Staff, or Patient
+        if (userRole !== 'Admin' && userRole !== 'Staff' && userRole !== 'Patient') {
+            return res.status(403).json({ msg: 'Access denied. Only Admin, Staff, and Patients can access this information.' });
+        }
+
+        // Determine patientId based on user role
+        const actualPatientId = userRole === 'Patient' ? userId : patientId;
+
+        if (!actualPatientId) {
+            return res.status(400).json({ msg: 'Patient ID is required.' });
+        }
+
+        // Validate doctor exists
+        const doctor = await Doctor.findById(doctorId);
+        if (!doctor) {
+            return res.status(404).json({ msg: 'Doctor not found' });
+        }
+
+        // Find the invoice by invoiceId
+        const advanceInvoice = await Invoice.findById(invoiceId);
+        if (!advanceInvoice) {
+            return res.status(404).json({ msg: 'Invoice not found.' });
+        }
+
+        // Ensure the invoice belongs to the correct patient and doctor and has a 'Partial' payment status
+        if (advanceInvoice.patientId.toString() !== actualPatientId || advanceInvoice.doctorId.toString() !== doctorId || advanceInvoice.paymentStatus !== 'Partial') {
+            return res.status(400).json({ msg: 'Invoice does not belong to this patient or doctor, or it is not a partial payment.' });
+        }
+
+        // Calculate the total fee and remaining balance
+        const totalFee = doctor.fullFee;
+        const remainingBalance = totalFee - advanceInvoice.amountPaid;
+
+        // Get the balance to pay from the request body
+        const balanceToPay = req.body.balance; // Now expecting balance in the request body
+
+        // Check if the balance to pay is sufficient to cover the remaining balance
+        if (balanceToPay < remainingBalance) {
+            return res.status(400).json({ msg: 'Balance to pay is less than the remaining balance.' });
+        }
+
+        // Update the advance invoice with the new amount and status
+        advanceInvoice.amountPaid += remainingBalance; // Pay off the remaining balance
+        advanceInvoice.paymentStatus = 'Completed'; // Mark as completed
+        advanceInvoice.paymentMethod = paymentMethod || advanceInvoice.paymentMethod; // Keep existing payment method
+        advanceInvoice.paymentDate = new Date(); // Update payment date
+        advanceInvoice.feeType = 'Full'; // Change feeType to 'Full' since the balance is settled
+
+        await advanceInvoice.save(); // Save the updated invoice
+
+        // Now update the payment status in the Appointment document
+        if (advanceInvoice.appointmentId) {
+            const appointment = await Appointment.findById(advanceInvoice.appointmentId);
+            if (appointment) {
+                appointment.paymentStatus = 'Completed'; // Mark the appointment as fully paid
+                await appointment.save(); // Save the updated appointment
+            }
+        }
+
+        return res.status(200).json({
+            msg: `Balance payment of ${remainingBalance} via ${paymentMethod} is recorded. The invoice is now fully paid.`,
+            invoice: advanceInvoice
+        });
+    } catch (error) {
+        console.error('Error paying balance:', error);
+        return res.status(500).json({ msg: 'Server error', error: error.message });
+    }
+};
+
+
+
+
+const getInvoice = async (req, res) => {
+    try {
+        // Get the logged-in user's ID and role
+        const loggedInUserId = req.user.userId; // From authentication middleware
+        const userRole = req.user.role; // From authentication middleware
+
+        // Get doctorId or patientId from query string
+        const { doctorId, patientId } = req.query;
+
+        // Initialize filter object
+        const filter = {};
+
+        // Role-based filtering
+        if (userRole === 'Doctor') {
+            // If the logged-in user is a doctor, they can only fetch their own invoices
+            filter.doctorId = loggedInUserId; // Use the logged-in doctor's ID
+        } else if (userRole === 'Patient') {
+            // If the logged-in user is a patient, they can only fetch their own invoices
+            filter.userId = loggedInUserId; // Use the logged-in patient's ID
+        } else if (userRole === 'Admin') {
+            // Admins can fetch all invoices or filter by doctorId/patientId if provided
+            if (doctorId) filter.doctorId = doctorId;
+            if (patientId) filter.patientId = patientId;
+        } else {
+            return res.status(403).json({ message: 'You do not have permission to access these invoices.' });
+        }
+
+        // Fetch invoices based on the filter (will fetch all if no filter is set for Admin)
+        const invoices = await Invoice.find(filter).sort({ createdAt: -1 });
+
+        if (invoices.length === 0) {
+            return res.status(404).json({ message: 'No invoices found' });
+        }
+
+        // Send the invoices in the response
+        res.json({
+            message: 'Invoices retrieved successfully',
+            invoices,
+        });
+    } catch (error) {
+        console.error('Error fetching invoices:', error);
+        res.status(500).json({ message: 'Server error', error: error.message });
+    }
+};
+
+
+
+
+
+const searchReports = async (req, res) => {
+    const { startDate, endDate, doctor, specialization, status } = req.query;
+
+    // Initialize filters object
+    const filters = {};
+
+    // If startDate is provided, add it to the filters
+    if (startDate) filters.startDate = { $gte: new Date(startDate) };
+
+    // If endDate is provided, add it to the filters
+    if (endDate) filters.endDate = { $lte: new Date(endDate) };
+
+    // If doctor is provided, add it to the filters
+    if (doctor) filters.doctor = doctor;
+
+    // If specialization is provided, add it to the filters
+    if (specialization) filters.specialization = specialization;
+
+    // If status is provided, add it to the filters
+    if (status) filters.status = status;
+
+    try {
+        // Fetch reports based on the filters
+        const reports = await Report.find(filters);
+
+        // Send the reports in the response
+        res.status(200).json(reports);
+    } catch (error) {
+        console.error('Error searching reports:', error);
+        res.status(500).json({ msg: 'Server error', error: error.message });
+    }
+};
+
+const createReport = async (req, res) => {
+    const { doctor, specialization, status, description, startDate, endDate } = req.body;
+
+    try {
+        // Create a new report with the given parameters
+        const newReport = new Report({
+            doctor,
+            specialization,
+            status,
+            description,
+            startDate: new Date(startDate),
+            endDate: new Date(endDate),
+        });
+
+        // Save the report to the database
+        await newReport.save();
+
+        // Send a success response with the created report
+        res.status(201).json({ msg: 'Report created successfully', report: newReport });
+    } catch (error) {
+        // Log the error message
+        console.error('Error creating report:', error);
+        // Send an error response with the error message
+        res.status(500).json({ msg: 'Server error', error: error.message });
+    }
+};
+
+
+const updateReport = async (req, res) => {
+    const { reportId } = req.params;
+    const { doctor, specialization, status, description, startDate, endDate } = req.body;
+
+    try {
+        // Find the report with the given ID
+        const report = await Report.findById(reportId);
+        if (!report) {
+            // If the report is not found, return a 404 error
+            return res.status(404).json({ msg: 'Report not found' });
+        }
+
+        // Update the report fields
+        report.doctor = doctor;
+        report.specialization = specialization;
+        report.status = status;
+        report.description = description;
+        report.startDate = new Date(startDate);
+        report.endDate = new Date(endDate);
+
+        // Save the updated report
+        await report.save();
+
+        // Send a success response with the updated report
+        res.status(200).json({ msg: 'Report updated successfully', report });
+    } catch (error) {
+        // Log the error message
+        console.error('Error updating report:', error);
+        // Send an error response with the error message
+        res.status(500).json({ msg: 'Server error', error: error.message });
+    }
+};
+
+
+const deleteReport = async (req, res) => {
+    const { reportId } = req.params;
+
+    try {
+        // Find the report by ID
+        const report = await Report.findById(reportId);
+
+        // If the report is not found, return a 404 error
+        if (!report) {
+            return res.status(404).json({ msg: 'Report not found' });
+        }
+
+        // Delete the report
+        await report.remove();
+
+        // Return a success response with the deleted report
+        res.status(200).json({ msg: 'Report deleted successfully' });
+    } catch (error) {
+        // If an error occurs, log the error and return a 500 response with the error message
+        console.error('Error deleting report:', error);
+        res.status(500).json({ msg: 'Server error', error: error.message });
+    }
+};
+
+
+const downloadReport = async (req, res) => {
+    const { startDate, endDate, doctor, specialization, status } = req.query;
+
+    // Construct filter object based on query parameters
+    const filters = {};
+    if (startDate) filters.startDate = { $gte: new Date(startDate) };
+    if (endDate) filters.endDate = { $lte: new Date(endDate) };
+    if (doctor) filters.doctor = doctor;
+    if (specialization) filters.specialization = specialization;
+    if (status) filters.status = status;
+
+    try {
+        // Fetch reports from the database based on the filters
+        const reports = await Report.find(filters).populate('doctor specialization');
+
+        // Map report data to a format suitable for CSV
+        const reportData = reports.map(report => ({
+            Doctor: report.doctor.name,
+            Specialization: report.specialization.name,
+            Status: report.status,
+            Description: report.description,
+            StartDate: report.startDate,
+            EndDate: report.endDate
+        }));
+
+        // Convert report data to CSV format
+        const json2csvParser = new Parser();
+        const csv = json2csvParser.parse(reportData);
+
+        // Set response headers to trigger file download
+        res.setHeader('Content-Disposition', 'attachment;filename=appointment_report.csv');
+        res.setHeader('Content-Type', 'text/csv');
+        res.status(200).send(csv);
+    } catch (error) {
+        // Handle errors and send server error response
+        res.status(500).json({ msg: 'Server error', error: error.message });
+    }
+};
+
+
+
+
 
 
 
 module.exports = { loginUser,viewUserDetails,updatePersonalDetails,changeOwnPassword, createUser, getUserById, updateUser,
      deleteUser,getDoctorsBySpecialization,getAvailableSlotsForDoctor,getAvailableDaysForDoctor,getPatients,
-     placeAppointment,updateAppointment,deleteAppointment,getAppointments, manageSchedules,manageBreaks };
+     placeAppointment,updateAppointment,deleteAppointment,getAppointments, manageSchedules,manageBreaks,makePayment,
+     handlePaymentNotification,checkBalance,payBalance,searchReports,createReport,updateReport,
+     deleteReport,downloadReport,getInvoice,fetchInvoices };
