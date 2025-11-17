@@ -1,0 +1,64 @@
+pipeline {
+    agent any
+
+    // Define environment variables globally for cleaner code
+    environment {
+        // Change this to your actual database name
+        MONGO_URI = 'mongodb://host.docker.internal:27017/clinical_db' 
+        APP_PORT = '5000'
+        IMAGE_NAME = 'my-node-app:latest'
+    }
+
+    stages {
+        stage('Build Docker Image') {
+            steps {
+                script {
+                    // Check if running on Windows (using 'bat') or Linux (using 'sh')
+                    if (isUnix()) {
+                        sh "docker build -t ${IMAGE_NAME} ."
+                    } else {
+                        bat "docker build -t ${IMAGE_NAME} ."
+                    }
+                }
+            }
+        }
+
+        stage('Deploy Container') {
+            steps {
+                script {
+                    // Stop and Remove old container to avoid name conflicts
+                    // '|| true' (Linux) or '|| exit 0' (Windows) prevents failure if container doesn't exist
+                    if (isUnix()) {
+                        sh "docker stop my-node-app || true"
+                        sh "docker rm my-node-app || true"
+                        sh """
+                            docker run -d --name my-node-app -p ${APP_PORT}:${APP_PORT} \
+                            -e MONGO_URI=${MONGO_URI} \
+                            -e PORT=${APP_PORT} \
+                            ${IMAGE_NAME}
+                        """
+                    } else {
+                        bat "docker stop my-node-app || exit 0"
+                        bat "docker rm my-node-app || exit 0"
+                        // Note: Windows uses ^ for line breaks
+                        bat """
+                            docker run -d --name my-node-app -p %APP_PORT%:%APP_PORT% ^
+                            -e MONGO_URI=%MONGO_URI% ^
+                            -e PORT=%APP_PORT% ^
+                            %IMAGE_NAME%
+                        """
+                    }
+                }
+            }
+        }
+    }
+
+    post {
+        success {
+            echo 'Pipeline successfully deployed the app!'
+        }
+        failure {
+            echo 'Pipeline failed. Please check the logs.'
+        }
+    }
+}
